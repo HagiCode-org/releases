@@ -1,0 +1,47 @@
+# HagiCode Application Docker Image
+# This image extends the base image with the actual application code
+# Template variables: {version}, {build_date}, {base_image_name}
+#
+# OPTIMIZED FOR FRAMEWORK-DEPENDENT DEPLOYMENT:
+# This Dockerfile is designed to work with framework-dependent packages (*-nort.zip)
+# which do NOT include the .NET runtime. The runtime is provided by the base image.
+# This results in significantly smaller Docker images (~50-75% size reduction).
+
+# Use the pre-built base image (contains .NET 10 runtime)
+FROM {base_image_name}:base
+
+# Metadata labels
+LABEL version="{version}"
+LABEL build.date="{build_date}"
+LABEL description="HagiCode - AI-assisted development platform (framework-dependent deployment)"
+LABEL deployment.type="framework-dependent"
+
+# Copy entrypoint script that configures Claude Code settings
+COPY --chown=hagicode:hagicode docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy application structure from Linux platform package
+# Framework-dependent package structure:
+# - lib/        : Application binaries and dependencies (NO runtime)
+# - *.sh        : Startup scripts
+# - config/     : Configuration files
+#
+# The .NET runtime is provided by the base image at:
+# - /usr/share/dotnet/dotnet (executable)
+# - Shared libraries in /usr/share/dotnet/shared/
+COPY --chown=hagicode:hagicode lib/ /app/
+
+# Expose the application port (default 5000)
+EXPOSE 5000
+
+# Add health check
+# The application should respond to HTTP requests on port 5000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 CMD curl -f http://localhost:5000/ || exit 1
+
+# Set working directory to /app where the application resides
+WORKDIR /app
+
+# Run the entrypoint script which will configure settings and then start the app
+# The entrypoint will execute: dotnet PCode.Web.dll
+# dotnet is available from PATH (installed in base image at /usr/share/dotnet)
+ENTRYPOINT ["docker-entrypoint.sh"]

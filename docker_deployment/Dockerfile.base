@@ -1,0 +1,109 @@
+# HagiCode Base Docker Image
+# This image contains Node.js 24, .NET 10 runtime, Claude Code CLI, OpenSpec CLI, and Git
+# Build this once and reuse across multiple application versions
+# Uses Ubuntu as base for better .NET compatibility
+#
+# CLI Tools Versions:
+# - Claude Code CLI: 2.1.15 (@anthropic-ai/claude-code@2.1.15)
+# - OpenSpec CLI: 0.23.0 (@fission-ai/openspec@0.23.0)
+# - UIPro CLI: 2.1.3 (uipro-cli@2.1.3)
+# - Agent Browser: 0.6.0 (agent-browser@0.6.0)
+#
+# To update CLI tool versions, see versions.txt in the docker_deployment directory.
+#
+# FRAMEWORK-DEPENDENT DEPLOYMENT:
+# This base image provides the .NET 10 runtime that is NOT included in the
+# framework-dependent application packages (*-nort.zip). The application images
+# only contain the application code and dependencies, resulting in smaller images
+# and better layer caching.
+
+FROM node:24
+
+# Metadata labels
+LABEL description="HagiCode Base - Node.js 24 on Ubuntu, .NET 10 runtime with CLI tools and Git"
+LABEL maintainer="HagiCode Contributors"
+LABEL purpose="Base image for framework-dependent deployment"
+
+# Install additional dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gosu \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install .NET 10 ASP.NET Core Runtime using official Microsoft script
+# This runtime is REQUIRED for framework-dependent deployments
+# The application packages do NOT include the runtime to reduce size
+RUN wget -qO- https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
+    --channel 10.0 \
+    --runtime aspnetcore \
+    --install-dir /usr/share/dotnet \
+    --version latest
+
+# Add .NET to PATH
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${DOTNET_ROOT}:${PATH}"
+
+# Create non-root user for running the application
+# Claude Code CLI cannot run as root user
+# Use UID 1000 to match common host user UID
+# -o allows groupadd/useradd to succeed even if GID/UID already exists
+RUN groupadd -o -g 1000 hagicode && \
+    useradd -o -u 1000 -g 1000 -s /bin/bash -m hagicode && \
+    mkdir -p /home/hagicode/.claude && \
+    chown -R hagicode:hagicode /home/hagicode
+
+# Switch to hagicode user for npm installations
+USER hagicode
+WORKDIR /home/hagicode
+
+# Configure npm to install global packages in user's home directory
+RUN mkdir -p /home/hagicode/.npm-global && \
+    npm config set prefix '/home/hagicode/.npm-global' && \
+    echo 'export PATH=/home/hagicode/.npm-global/bin:$PATH' >> /home/hagicode/.bashrc
+
+# Install Claude Code CLI via npm as non-root user
+# This enables AI-assisted development features within the container
+RUN npm install -g @anthropic-ai/claude-code@2.1.34 && \
+    /home/hagicode/.npm-global/bin/claude --version || echo "Claude Code CLI installed" && \
+    npm cache clean --force
+
+# Install OpenSpec CLI tool for proposal and change management as non-root user
+# This enables spec-driven development workflows
+RUN npm install -g @fission-ai/openspec@0.23.0 && \
+    /home/hagicode/.npm-global/bin/openspec --version || echo "OpenSpec CLI installed" && \
+    npm cache clean --force
+
+# Install UIPro CLI for UI/UX Pro Max skill installation
+# This enables AI assistants to install and use UI/UX design skills
+RUN npm install -g uipro-cli@2.1.3 && \
+    /home/hagicode/.npm-global/bin/uipro --version || echo "UIPro CLI installed" && \
+    npm cache clean --force
+
+# Install Agent Browser for headless browser automation
+# This enables AI agents to interact with web pages
+RUN npm install -g agent-browser@0.6.0 && \
+    /home/hagicode/.npm-global/bin/agent-browser --version || echo "Agent Browser installed" && \
+    npm cache clean --force
+
+# Switch back to root for final setup
+USER root
+WORKDIR /app
+
+# Clean up npm global cache to reduce image size
+RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
+
+# Clean up temporary files to reduce image size
+RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
+
+# Add npm global bin directory to PATH for all users
+# This makes claude and openspec commands available system-wide
+ENV PATH="/home/hagicode/.npm-global/bin:${PATH}"
+
+# Set environment variables for the application
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://+:5000
+
+# Create directory for application data
+RUN mkdir -p /app/data && \
+    chown -R hagicode:hagicode /app

@@ -1,0 +1,41 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Build outputs
+output/
+nukeBuild/.nuke/
+nukeBuild/bin/
+nukeBuild/obj/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+
+# Documentation
+*.md
+LICENSE
+docs/
+
+# CI/CD
+.github/
+openspec/
+
+# Release scripts
+ReleaseScripts/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test/
+tests/
+*.test.csproj
