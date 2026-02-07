@@ -1,0 +1,82 @@
+# Release Configuration for Hagicode
+
+# Docker Registry Configuration
+docker:
+  registry: "docker.io/newbe36524"
+  image_name: "hagicode"
+
+# Version Tagging Strategy
+# Tags are applied to Docker images based on the version:
+# - Full version: v1.2.3 -> hagicode:v1.2.3, hagicode:v1.2, hagicode:v1, hagicode:latest
+# - Pre-release: v1.2.3-alpha -> hagicode:v1.2.3-alpha, hagicode:v1.2, hagicode:v1 (NO latest tag)
+tagging:
+  strategy: "semantic"
+  patterns:
+    - type: "full"
+      format: "{version}"
+      example: "v1.2.3"
+    - type: "minor"
+      format: "{major}.{minor}"
+      example: "v1.2"
+    - type: "major"
+      format: "{major}"
+      example: "v1"
+    - type: "latest"
+      format: "latest"
+      condition: "stable_only"
+      example: "latest"
+
+# Pre-release Detection
+pre_release:
+  enabled: true
+  patterns:
+    - "-alpha"
+    - "-beta"
+    - "-rc"
+    - ".alpha"
+    - ".beta"
+    - ".rc"
+
+# Artifact Configuration
+artifacts:
+  # Original .zip package from Azure Blob Storage
+  package:
+    format: "zip"
+    include_original: true
+    include_extracted: false
+    naming_convention: "hagicode-{version}.zip"
+
+# Release Notes Template
+release_notes:
+  title_template: "{version}"
+  body_template: |
+    ## {version}
+
+    Automated release from CI/CD pipeline.
+
+    ### Docker Images
+    - `{registry}/{image}:{version}`
+    - `{registry}/{image}:{minor_version}`
+    - `{registry}/{image}:{major_version}`
+    {latest_tag}
+
+    ### Installation
+    ```bash
+    docker pull {registry}/{image}:{version}
+    docker run -p 5000:5000 {registry}/{image}:{version}
+    ```
+
+    ### Downloads
+    - Package: [{package_name}]({package_url})
+
+# Azure Blob Storage Configuration
+azure:
+  # Package naming convention in storage
+  package_naming: "{version}/hagicode-{version}.zip"
+  index_file: "index.json"
+
+# GitHub Release Configuration
+github:
+  create_release: true
+  upload_artifacts: true
+  detect_pre_release: true
