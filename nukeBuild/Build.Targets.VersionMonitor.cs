@@ -13,7 +13,6 @@ partial class Build
 {
     Target VersionMonitor => _ => _
         .Requires(() => AzureBlobSasUrl)
-        .Requires(() => EffectiveGitHubToken)
         .Requires(() => EffectiveGitHubRepository)
         .Executes(VersionMonitorExecute);
 
