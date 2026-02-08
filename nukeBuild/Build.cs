@@ -103,6 +103,9 @@ partial class Build : Nuke.Common.NukeBuild
     [Parameter("Azure ACR registry (default: hagicode.azurecr.io)")]
     readonly string AzureAcrRegistry = "hagicode.azurecr.io";
 
+    [Parameter("Dry run mode (do not trigger actual releases)")]
+    readonly bool DryRun = false;
+
     // ==========================================================================
     // Dependencies
     // ==========================================================================

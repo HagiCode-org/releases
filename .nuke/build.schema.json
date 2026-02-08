@@ -35,7 +35,8 @@
         "Extract",
         "GitHubRelease",
         "Release",
-        "Restore"
+        "Restore",
+        "VersionMonitor"
       ]
     },
     "Verbosity": {
@@ -159,6 +160,10 @@
           "type": "string",
           "description": "Docker Hub username",
           "default": "Secrets must be entered via 'nuke :secrets [profile]'"
+        },
+        "DryRun": {
+          "type": "boolean",
+          "description": "Dry run mode (do not trigger actual releases)"
         },
         "GitHubRepository": {
           "type": "string",

@@ -21,6 +21,7 @@ namespace NukeBuild.Adapters
         PackageIndex? DownloadIndexJson(string sasUrl);
         string? FindVersion(PackageIndex? index, string version, string platform);
         List<string> GetAllPackagePaths(PackageIndex? index, string version);
+        List<string> GetAllVersions(PackageIndex? index);
     }
 
     public class AzureBlobDownloadOptions
@@ -357,6 +358,26 @@ namespace NukeBuild.Adapters
             }
 
             return result;
+        }
+
+        public List<string> GetAllVersions(PackageIndex? index)
+        {
+            var versions = new List<string>();
+
+            if (index == null || index.Versions.Count == 0)
+            {
+                Log.Warning("Index is empty or null");
+                return versions;
+            }
+
+            // Extract all version strings from the index
+            foreach (var versionEntry in index.Versions)
+            {
+                versions.Add(versionEntry.Version);
+            }
+
+            Log.Information("Found {Count} versions in index", versions.Count);
+            return versions;
         }
 
         private void DownloadFileWithRetry(string url, AbsolutePath localPath, out long downloadedBytes)

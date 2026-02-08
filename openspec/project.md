@@ -83,6 +83,7 @@ Nuke provides cross-platform build automation with C# based definitions:
 | `DockerPushAliyun` | Push images to Aliyun Container Registry |
 | `DockerPushAll` | Push images to all configured registries |
 | `GitHubRelease` | Upload packages to GitHub Release |
+| `VersionMonitor` | Monitor Azure for new versions and trigger releases |
 | `Release` | Full pipeline orchestrator (pushes to all registries + GitHub release) |
 
 **Usage:**
@@ -100,6 +101,7 @@ The repository uses two GitHub Actions workflows:
 |----------|---------|---------|
 | `hagicode-server-publish.yml` | Version tags (`v*.*.*`) | Full release pipeline |
 | `docker-build.yml` | Push to `main` branch | Docker build validation |
+| `version-monitor.yml` | Schedule (every 4 hours) + manual | Monitor Azure for new versions and trigger releases |
 
 ### Version Tagging Strategy
 
@@ -209,7 +211,8 @@ Optional:
 │   │   ├── Build.Targets.Download.cs   # Package download
 │   │   ├── Build.Targets.Extract.cs    # Package extraction
 │   │   ├── Build.Targets.Docker.cs     # Docker operations
-│   │   └── Build.Targets.GitHub.cs     # GitHub release upload
+│   │   ├── Build.Targets.GitHub.cs     # GitHub release upload
+│   │   └── Build.Targets.VersionMonitor.cs  # Version monitoring
 │   └── Adapters/               # External service adapters
 │       └── AzureBlobAdapter.cs # Azure download logic
 ├── docker_deployment/          # Docker configuration
@@ -261,6 +264,13 @@ All specs use:
 For detailed guidelines on creating proposals with visualizations, refer to **[PROPOSAL_DESIGN_GUIDELINES.md](PROPOSAL_DESIGN_GUIDELINES.md)**.
 
 ## Recent Changes
+
+### 2026-02-08: Version Monitor Refactor
+- Added `VersionMonitor` Nuke target for version monitoring
+- Refactored version-monitor.yml workflow to use Nuke instead of bash scripts
+- Added `GetAllVersions` method to `AzureBlobAdapter`
+- Added `DryRun` parameter for testing
+- Added `version-monitor` spec to `openspec/specs/`
 
 ### 2026-02-08: Docker Multi-Registry Publish Unification
 - Added `DockerPushAzure` target for Azure Container Registry
