@@ -60,8 +60,8 @@ partial class Build : Nuke.Common.NukeBuild
     [Parameter("Docker image name")]
     readonly string DockerImageName = "hagicode";
 
-    [Parameter("Version from git tag (e.g., v1.0.0)")]
-    readonly string Version = "0.1.0-beta.1";
+    [Parameter("Release version from git tag (e.g., v1.0.0)")]
+    readonly string ReleaseVersion = "0.1.0-beta.1";
 
     [Parameter("Docker Hub username")]
     [Secret]

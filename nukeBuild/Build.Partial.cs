@@ -23,7 +23,7 @@ partial class Build
     /// <summary>
     /// Gets the full version string without 'v' prefix
     /// </summary>
-    string FullVersion => Version.TrimStart('v');
+    string FullVersion => ReleaseVersion.TrimStart('v');
 
     /// <summary>
     /// Gets the major version (e.g., "1" from "1.2.3")

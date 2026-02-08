@@ -72,7 +72,13 @@ partial class Build
             var processInfo = new ProcessStartInfo
             {
                 FileName = "gh",
-                Arguments = "release list --json tagName --jq '.[].tagName'",
+                ArgumentList =
+                {
+                    "release",
+                    "list",
+                    "--json", "tagName",
+                    "--jq", ".[].tagName"
+                },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -82,6 +88,10 @@ partial class Build
                     ["GH_TOKEN"] = token
                 }
             };
+
+            // Log the command for debugging
+            var commandArgs = string.Join(" ", "release", "list", "--json", "tagName", "--jq", ".[].tagName");
+            Log.Debug("Executing gh command: gh {Args}", commandArgs);
 
             using var process = Process.Start(processInfo);
             if (process == null)
@@ -152,15 +162,29 @@ partial class Build
 
         try
         {
-            var payload = JsonSerializer.Serialize(new
+            // Build the complete request body as JSON
+            var requestBody = JsonSerializer.Serialize(new
             {
-                version = version
+                event_type = "version-monitor-release",
+                client_payload = new
+                {
+                    version = version
+                }
             });
 
             var processInfo = new ProcessStartInfo
             {
                 FileName = "gh",
-                Arguments = $"api --method POST -H \"Accept: application/vnd.github.v3+json\" /repos/{repository}/dispatches -f event_type=\"version-monitor-release\" -f client_payload='{payload}'",
+                ArgumentList =
+                {
+                    "api",
+                    "--method", "POST",
+                    "-H", "Accept: application/vnd.github.v3+json",
+                    "-H", "Content-Type: application/json",
+                    $"/repos/{repository}/dispatches",
+                    "--input", "-"
+                },
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -176,6 +200,10 @@ partial class Build
             {
                 throw new Exception("Failed to start gh process");
             }
+
+            // Write the JSON body to stdin
+            process.StandardInput.Write(requestBody);
+            process.StandardInput.Close();
 
             var output = process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();

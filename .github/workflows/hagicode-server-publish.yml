@@ -86,7 +86,7 @@ jobs:
       - name: 'Run: Release'
         run: ./build.sh Release
         env:
-          Version: ${{ steps.version.outputs.version }}
+          ReleaseVersion: ${{ steps.version.outputs.version }}
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DockerUsername: ${{ secrets.DOCKER_USERNAME }}
           DockerPassword: ${{ secrets.DOCKER_PASSWORD }}

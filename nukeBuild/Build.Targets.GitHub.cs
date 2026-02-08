@@ -13,7 +13,7 @@ partial class Build
     /// <summary>
     /// Gets the version with 'v' prefix for GitHub release tags
     /// </summary>
-    string GitHubReleaseVersion => Version.StartsWith("v") ? Version : $"v{Version}";
+    string GitHubReleaseVersion => ReleaseVersion.StartsWith("v") ? ReleaseVersion : $"v{ReleaseVersion}";
 
     Target GitHubRelease => _ => _
         .DependsOn(Download)
@@ -74,7 +74,7 @@ partial class Build
 
     string BuildReleaseNotes(IReadOnlyCollection<AbsolutePath> zipFiles)
     {
-        return $"Release {Version}\n\n" +
+        return $"Release {ReleaseVersion}\n\n" +
                $"Automated release from CI/CD pipeline.\n\n" +
                $"Packages included:\n" +
                string.Join("\n", zipFiles.Select(f => $"- {System.IO.Path.GetFileName(f)}"));

@@ -11,13 +11,13 @@ partial class Build
     Target Download => _ => _
         .DependsOn(Clean)
         .Requires(() => AzureBlobSasUrl)
-        .Requires(() => Version)
+        .Requires(() => ReleaseVersion)
         .Produces(DownloadDirectory / "*.zip")
         .Executes(DownloadExecute);
 
     void DownloadExecute()
     {
-        Log.Information("Downloading ALL packages version {Version} from Azure Blob Storage", Version);
+        Log.Information("Downloading ALL packages version {Version} from Azure Blob Storage", ReleaseVersion);
 
         var adapter = new AzureBlobAdapter();
         var options = new AzureBlobDownloadAllOptions
