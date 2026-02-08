@@ -36,13 +36,31 @@ docker-compose up -d
 
 ### Creating a Release
 
-1. Push a version tag to trigger the release workflow:
+#### Automated Release (Recommended)
+
+The repository includes an automated version monitor that:
+- Runs every 4 hours to check for new versions on Azure Blob Storage
+- Compares Azure versions with existing GitHub Releases
+- Automatically triggers the release workflow for new versions
+
+No manual intervention required - new versions are detected and released automatically.
+
+#### Manual Release
+
+You can still create releases manually:
+
+1. **Push a version tag** (triggers workflow):
    ```bash
    git tag v1.0.0
    git push origin v1.0.0
    ```
 
-2. GitHub Actions will automatically:
+2. **Or use workflow dispatch**:
+   - Go to Actions > hagicode-server-publish
+   - Click "Run workflow"
+   - Enter the version (e.g., `1.0.0` or `v1.0.0`)
+
+3. GitHub Actions will automatically:
    - Download the package from Azure Blob Storage
    - Build Docker images
    - Push to all configured registries (Docker Hub, Azure ACR, Aliyun ACR) with version tags
@@ -56,6 +74,51 @@ Azure Blob Storage -> Download Package -> Docker Build -> Docker Hub
                                               -> Aliyun ACR
                                               -> GitHub Release
 ```
+
+### Automated Version Monitoring
+
+The repository includes an automated version monitoring system:
+
+```
+┌─────────────────┐
+│ Version Monitor │
+│ (Every 4 hours) │
+└────────┬────────┘
+         │
+         ▼
+    ┌────────────────┐
+    │ Check Azure    │
+    │ index.json     │
+    └────────┬───────┘
+             │
+             ▼
+      ┌──────────────────┐
+      │ Compare with     │
+      │ GitHub Releases  │
+      └────────┬─────────┘
+               │
+         ▼────────▼
+   New version?  No new version
+    │              │
+    ▼              ▼
+Trigger Release  Exit
+    │
+    ▼
+┌─────────────────────┐
+│ Publish Workflow    │
+│ - Create Release    │
+│ - Download Package  │
+│ - Build Images      │
+│ - Push to Registries│
+└─────────────────────┘
+```
+
+**Features**:
+- Automatic detection of new versions on Azure Blob Storage
+- Comparison with existing GitHub Releases
+- Automatic triggering of the release workflow
+- Failure notifications via GitHub Issues
+- Manual trigger support for testing
 
 ## Local Development
 
@@ -171,20 +234,26 @@ Docker images are tagged with multiple versions:
 .
 ├── .github/
 │   └── workflows/
-│       └── release.yml          # GitHub Actions workflow
+│       ├── hagicode-server-publish.yml  # GitHub Actions publish workflow
+│       ├── version-monitor.yml          # Automated version monitoring workflow
+│       └── docker-build.yml             # Docker build workflow
 ├── nukeBuild/
-│   ├── _build.csproj            # Nuke build project
-│   ├── Build.cs                 # Main build definition
-│   ├── configuration.csharp     # Build parameters
+│   ├── _build.csproj                    # Nuke build project
+│   ├── Build.cs                         # Main build definition
+│   ├── Build.Partial.cs                 # Shared properties and CI integration
+│   ├── Build.Targets.Download.cs        # Download packages from Azure
+│   ├── Build.Targets.Extract.cs         # Extract packages for Docker
+│   ├── Build.Targets.Docker.cs          # Build and push Docker images
+│   ├── Build.Targets.GitHub.cs          # Create GitHub releases
 │   └── Adapters/
-│       └── AzureBlobAdapter.cs  # Azure download adapter
+│       └── AzureBlobAdapter.cs          # Azure download adapter
 ├── docker_deployment/
-│   ├── Dockerfile               # Container image definition
-│   └── .dockerignore            # Build context exclusions
+│   ├── Dockerfile                       # Container image definition
+│   └── .dockerignore                    # Build context exclusions
 ├── ReleaseScripts/
-│   └── release_config.yml       # Release configuration
-├── docker-compose.yml           # Development compose file
-└── .env.example                 # Environment template
+│   └── release_config.yml               # Release configuration
+├── docker-compose.yml                   # Development compose file
+└── .env.example                         # Environment template
 ```
 
 ## Build Framework
@@ -196,6 +265,23 @@ This project uses **Nuke** for build automation. Nuke provides:
 - CI/CD integration
 
 ## Troubleshooting
+
+### Version Monitor Issues
+
+**Monitor workflow fails to download index.json**:
+- Verify `AZURE_BLOB_SAS_URL` is valid and not expired
+- Check that index.json exists in the Azure Blob Storage container
+- Ensure SAS URL has Read permissions for the container
+
+**Monitor doesn't detect new versions**:
+- Check the workflow logs to see what versions were found
+- Verify the version format in Azure index matches expectations (e.g., "1.0.0")
+- Ensure the GitHub Release for that version doesn't already exist
+
+**Release workflow not triggered**:
+- Check that the repository_dispatch event was created successfully
+- Verify the event type "version-monitor-release" is correctly configured
+- Check GitHub Actions logs for the monitor workflow
 
 ### Download Fails
 
@@ -220,6 +306,21 @@ This project uses **Nuke** for build automation. Nuke provides:
 - Verify `GITHUB_TOKEN` has `contents: write` permission
 - Check the repository name is correct
 - Ensure tag exists in the repository
+
+## Manual Testing
+
+To manually trigger the version monitor for testing:
+
+1. Go to Actions > Version Monitor in the GitHub repository
+2. Click "Run workflow"
+3. Set `dry_run` to `true` to test without triggering releases
+4. Click "Run workflow" to execute
+
+This will help you verify:
+- Azure index.json can be downloaded
+- Versions are correctly parsed
+- GitHub Releases API works correctly
+- Version comparison logic functions properly
 
 ## License
 

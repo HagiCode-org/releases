@@ -1,0 +1,153 @@
+name: Version Monitor
+
+on:
+  schedule:
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not trigger release)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  monitor:
+    name: Monitor for new versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download Azure index
+        id: download_index
+        run: |
+          echo "Downloading index.json from Azure Blob Storage..."
+          INDEX_URL="${{ secrets.AZURE_BLOB_SAS_URL }}index.json"
+          curl -fsSL "$INDEX_URL" -o /tmp/index.json
+
+          if [ ! -s /tmp/index.json ]; then
+            echo "Error: index.json is empty or download failed"
+            exit 1
+          fi
+
+          echo "Downloaded index.json successfully"
+          cat /tmp/index.json
+
+      - name: Extract versions from Azure index
+        id: azure_versions
+        run: |
+          # Extract all versions from index.json
+          AZURE_VERSIONS=$(jq -r '.versions[].version' /tmp/index.json | sort -V | tr '\n' ' ')
+          echo "azure_versions=$AZURE_VERSIONS" >> $GITHUB_OUTPUT
+          echo "Azure versions: $AZURE_VERSIONS"
+
+      - name: Get GitHub Releases
+        id: github_releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get all release tags
+          RELEASE_TAGS=$(gh release list --json tagName --jq '.[].tagName' | sort -V | tr '\n' ' ')
+          echo "github_releases=$RELEASE_TAGS" >> $GITHUB_OUTPUT
+          echo "GitHub releases: $RELEASE_TAGS"
+
+      - name: Compare and find new versions
+        id: compare
+        run: |
+          AZURE_VERSIONS="${{ steps.azure_versions.outputs.azure_versions }}"
+          GITHUB_RELEASES="${{ steps.github_releases.outputs.github_releases }}"
+
+          echo "Comparing Azure versions with GitHub releases..."
+
+          # Find versions in Azure but not in GitHub releases
+          NEW_VERSIONS=""
+
+          for version in $AZURE_VERSIONS; do
+            # Check if this version (with or without 'v' prefix) exists in releases
+            version_with_v="v$version"
+            if [[ ! " $GITHUB_RELEASES " =~ " $version " ]] && [[ ! " $GITHUB_RELEASES " =~ " $version_with_v " ]]; then
+              NEW_VERSIONS="$NEW_VERSIONS $version"
+            fi
+          done
+
+          # Trim leading space
+          NEW_VERSIONS=$(echo "$NEW_VERSIONS" | xargs)
+
+          if [ -z "$NEW_VERSIONS" ]; then
+            echo "No new versions found"
+            echo "new_versions=" >> $GITHUB_OUTPUT
+          else
+            echo "New versions found:$NEW_VERSIONS"
+            echo "new_versions=$NEW_VERSIONS" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger release workflow
+        if: steps.compare.outputs.new_versions != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          NEW_VERSIONS="${{ steps.compare.outputs.new_versions }}"
+
+          echo "Processing new versions: $NEW_VERSIONS"
+
+          for version in $NEW_VERSIONS; do
+            echo "Triggering release for version: $version"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would trigger release for $version"
+            else
+              # Trigger the publish workflow using repository_dispatch
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github.v3+json" \
+                /repos/${{ github.repository }}/dispatches \
+                -f event_type="version-monitor-release" \
+                -f client_payload="{\"version\":\"$version\"}"
+
+              echo "Triggered release workflow for version $version"
+            fi
+          done
+
+      - name: Summary (manual trigger only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "## Version Monitor Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Azure Versions Found" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.azure_versions.outputs.azure_versions }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Releases" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.github_releases.outputs.github_releases }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### New Versions to Release" >> $GITHUB_STEP_SUMMARY
+          NEW_VERSIONS="${{ steps.compare.outputs.new_versions }}"
+          if [ -z "$NEW_VERSIONS" ]; then
+            echo "No new versions found. All Azure versions are already released." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "$NEW_VERSIONS" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Version Monitor Failed - $(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
+            --label "bug,automation" \
+            --body "Version Monitor workflow failed at $(date -u +'%Y-%m-%d %H:%M:%S UTC').
+
+          **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Please check the logs for more details." \
+            --repo "${{ github.repository }}" || echo "Failed to create issue"
