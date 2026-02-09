@@ -49,12 +49,19 @@ partial class Build
         if (newVersions.Count == 0)
         {
             Log.Information("No new versions to release. All Azure versions are already on GitHub.");
+            // Output to GITHUB_ENV for use in workflow
+            SetGitHubOutput("has_new_versions", "false");
+            SetGitHubOutput("new_versions", "");
             return;
         }
 
         Log.Information("Found {Count} new versions to release: {Versions}",
             newVersions.Count,
             string.Join(", ", newVersions));
+
+        // Output to GITHUB_ENV for use in workflow
+        SetGitHubOutput("has_new_versions", "true");
+        SetGitHubOutput("new_versions", string.Join(", ", newVersions));
 
         // Trigger release for each new version
         foreach (var version in newVersions)

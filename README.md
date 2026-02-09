@@ -215,6 +215,33 @@ Configure these in your repository settings (Settings > Secrets and variables > 
 - `AZURE_ACR_USERNAME` - Azure Container Registry username
 - `AZURE_ACR_PASSWORD` - Azure Container Registry password/token
 
+**Required for Feishu notifications (optional):**
+- `FEISHU_WEBHOOK_URL` - Feishu webhook URL for release notifications
+
+#### Feishu Notification Setup
+
+This project uses the unified **haginotifier** workflow from the `HagiCode-org/haginotifier` repository for sending Feishu notifications. This provides a consistent notification mechanism across all HagiCode organization repositories.
+
+To enable Feishu notifications for release workflows:
+
+1. **Use the Organization-level Secret (Recommended)**:
+   - The `FEISHU_WEBHOOK_URL` is configured at the organization level
+   - All repositories within the organization can reuse it without managing their own webhook URL
+   - Contact your organization administrator to configure access
+
+2. **Or Configure Per-Repository**:
+   - Go to your repository Settings > Secrets and variables > Actions
+   - Create a new secret named `FEISHU_WEBHOOK_URL`
+   - Paste your Feishu Webhook URL as the value
+
+3. **Notification Behavior**:
+   - **Release Workflow**: Sends notification on every release (success or failure)
+   - **Version Monitor**: Sends notification only when new versions are found or on failure
+   - Notifications are sent via the reusable [haginotifier](https://github.com/HagiCode-org/haginotifier) workflow
+   - If webhook is not configured, workflows will continue to work without notifications
+
+For more information about haginotifier, visit: https://github.com/HagiCode-org/haginotifier
+
 ## Version Tagging
 
 Docker images are tagged with multiple versions:

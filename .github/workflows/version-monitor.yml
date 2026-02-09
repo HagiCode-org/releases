@@ -23,6 +23,9 @@ jobs:
   monitor:
     name: Monitor for new versions
     runs-on: ubuntu-latest
+    outputs:
+      has_new_versions: ${{ steps.version-monitor.outputs.has_new_versions }}
+      new_versions: ${{ steps.version-monitor.outputs.new_versions }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -33,12 +36,22 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Run Version Monitor
+        id: version-monitor
         run: |
           dotnet run --project nukeBuild -- VersionMonitor \
             --AzureBlobSasUrl "${{ secrets.AZURE_BLOB_SAS_URL }}" \
             --GitHubToken "${{ secrets.GITHUB_TOKEN }}" \
             --GitHubRepository "${{ github.repository }}" \
             --DryRun "${{ github.event.inputs.dry_run || 'false' }}"
+
+          # Check if GITHUB_OUTPUT file exists
+          if [ -f "$GITHUB_OUTPUT" ]; then
+            # The VersionMonitor target should have already written to GITHUB_OUTPUT
+            # Just verify the outputs are set
+            echo "Version monitor completed"
+          else
+            echo "Warning: GITHUB_OUTPUT not found, outputs may not be set properly"
+          fi
 
       - name: Create issue on failure
         if: failure()
@@ -54,3 +67,25 @@ jobs:
 
           Please check the logs for more details." \
             --repo "${{ github.repository }}" || echo "Failed to create issue"
+
+  feishu-notify:
+    name: Send Feishu Notification
+    uses: HagiCode-org/haginotifier/.github/workflows/notify.yml@main
+    needs: monitor
+    # Run only if there are new versions OR if monitor failed
+    if: needs.monitor.outputs.has_new_versions == 'true' || needs.monitor.result == 'failure'
+    with:
+      msg_type: 'post'
+      title: ${{ needs.monitor.result == 'failure' && '❌ Version Monitor 失败' || '✨ 发现新版本' }}
+      message: |
+        **状态**: ${{ needs.monitor.result == 'failure' && '监控失败' || '发现新版本' }}
+        **仓库**: ${{ github.repository }}
+        **时间**: ${{ github.event.head_commit.timestamp }}
+
+        **详情**:
+        ${{ needs.monitor.result == 'failure' && '监控过程中发生错误，请检查日志' || format('新版本: {0}', needs.monitor.outputs.new_versions) }}
+
+        **链接**:
+        • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets:
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

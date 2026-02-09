@@ -103,4 +103,21 @@ partial class Build
     /// Gets the GitHub repository from CI or parameter
     /// </summary>
     string EffectiveGitHubRepository => GitHubActions?.Repository ?? GitHubRepository;
+
+    /// <summary>
+    /// Sets a GitHub Actions output value
+    /// </summary>
+    void SetGitHubOutput(string name, string value)
+    {
+        var outputPath = System.Environment.GetEnvironmentVariable("GITHUB_OUTPUT");
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            System.IO.File.AppendAllText(outputPath, $"{name}={value}\n");
+            Log.Debug("Set GitHub output: {Name}={Value}", name, value);
+        }
+        else
+        {
+            Log.Warning("GITHUB_OUTPUT environment variable not found. Output '{Name}' will not be set.", name);
+        }
+    }
 }
