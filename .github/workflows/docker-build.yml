@@ -48,3 +48,21 @@ jobs:
         with:
           name: docker-image-built.txt
           path: output/docker-image-built.txt
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: Docker Build ${{ success() && '成功 ✅' || '失败 ❌' }}
+          message: |
+            **状态**: ${{ success() && 'Docker 构建成功' || 'Docker 构建失败' }}
+            **触发者**: ${{ github.actor }}
+            **分支**: ${{ github.ref_name }}
+            **提交**: ${{ github.sha }}
+
+            **链接**:
+            • Commit: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

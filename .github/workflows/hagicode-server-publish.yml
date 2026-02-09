@@ -107,23 +107,21 @@ jobs:
         with:
           name: docker-image-built.txt
           path: output/docker-image-built.txt
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: Hagicode Release ${{ success() && '发布成功 ✅' || '发布失败 ❌' }}
+          message: |
+            **版本号**: ${{ steps.version.outputs.version }}
+            **状态**: ${{ success() && '发布成功' || '发布失败' }}
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
 
-  feishu-notify:
-    name: Send Feishu Notification
-    uses: HagiCode-org/haginotifier/.github/workflows/notify.yml@main
-    needs: ubuntu-latest
-    if: always()
-    with:
-      msg_type: 'interactive'
-      title: Hagicode Release ${{ needs.ubuntu-latest.result == 'success' && '发布成功 ✅' || '发布失败 ❌' }}
-      message: |
-        **版本号**: ${{ needs.ubuntu-latest.outputs.version }}
-        **状态**: ${{ needs.ubuntu-latest.result == 'success' && '发布成功' || '发布失败' }}
-        **触发者**: ${{ github.actor }}
-        **时间**: ${{ github.event.head_commit.timestamp }}
-
-        **链接**:
-        • GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.ubuntu-latest.outputs.version }}
-        • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    secrets:
-      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+            **链接**:
+            • GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
