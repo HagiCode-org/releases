@@ -67,25 +67,23 @@ jobs:
 
           Please check the logs for more details." \
             --repo "${{ github.repository }}" || echo "Failed to create issue"
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        # Run only if there are new versions OR if monitor failed
+        if: steps.version-monitor.outputs.has_new_versions == 'true' || failure()
+        with:
+          msg_type: 'post'
+          title: ${{ job.status == 'failure' && '❌ Version Monitor 失败' || '✨ 发现新版本' }}
+          message: |
+            **状态**: ${{ job.status == 'failure' && '监控失败' || '发现新版本' }}
+            **仓库**: ${{ github.repository }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
 
-  feishu-notify:
-    name: Send Feishu Notification
-    uses: HagiCode-org/haginotifier/.github/workflows/notify.yml@main
-    needs: monitor
-    # Run only if there are new versions OR if monitor failed
-    if: needs.monitor.outputs.has_new_versions == 'true' || needs.monitor.result == 'failure'
-    with:
-      msg_type: 'post'
-      title: ${{ needs.monitor.result == 'failure' && '❌ Version Monitor 失败' || '✨ 发现新版本' }}
-      message: |
-        **状态**: ${{ needs.monitor.result == 'failure' && '监控失败' || '发现新版本' }}
-        **仓库**: ${{ github.repository }}
-        **时间**: ${{ github.event.head_commit.timestamp }}
+            **详情**:
+            ${{ job.status == 'failure' && '监控过程中发生错误，请检查日志' || format('新版本: {0}', steps.version-monitor.outputs.new_versions) }}
 
-        **详情**:
-        ${{ needs.monitor.result == 'failure' && '监控过程中发生错误，请检查日志' || format('新版本: {0}', needs.monitor.outputs.new_versions) }}
-
-        **链接**:
-        • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    secrets:
-      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
