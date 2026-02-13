@@ -195,6 +195,10 @@ Optional:
 - `ALIYUN_ACR_REGISTRY` - Aliyun ACR URL (default: `registry.cn-hangzhou.aliyuncs.com`)
 - `AZURE_ACR_REGISTRY` - Azure ACR URL (default: `hagicode.azurecr.io`)
 
+Docker Container Optional (for ZAI API):
+- `ZAI_SONNET_MODEL` - Sonnet layer model version (default: `glm-4.7`)
+- `ZAI_OPUS_MODEL` - Opus layer model version (default: `glm-4.7`)
+
 ## Project Structure
 
 ```

@@ -92,6 +92,10 @@ elif [ -n "$ZAI_API_KEY" ]; then
     echo "✓ Configuring Claude Code with ZAI API endpoint..."
     echo "  Source: ZAI_API_KEY environment variable"
 
+    # Set default model versions (can be overridden via environment variables)
+    ZAI_SONNET_MODEL="${ZAI_SONNET_MODEL:-glm-4.7}"
+    ZAI_OPUS_MODEL="${ZAI_OPUS_MODEL:-glm-4.7}"
+
     # Create .claude directory for hagicode user
     mkdir -p /home/hagicode/.claude
 
@@ -104,8 +108,8 @@ elif [ -n "$ZAI_API_KEY" ]; then
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.5-air",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.7",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.7"
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "${ZAI_SONNET_MODEL}",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "${ZAI_OPUS_MODEL}"
   }
 }
 EOF
