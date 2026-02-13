@@ -198,6 +198,7 @@ Optional:
 Docker Container Optional (for ZAI API):
 - `ZAI_SONNET_MODEL` - Sonnet layer model version (default: `glm-4.7`)
 - `ZAI_OPUS_MODEL` - Opus layer model version (default: `glm-4.7`)
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` - Enable Agent Teams multi-agent collaboration feature (default: `1`, set to `0` or empty to disable)
 
 ## Project Structure
 
