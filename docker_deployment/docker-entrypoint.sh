@@ -34,7 +34,7 @@ fi
 # ==================================================
 # Claude Code Configuration
 # ==================================================
-# Configuration Priority: ANTHROPIC_AUTH_TOKEN > ZAI_API_KEY > Host Config > None
+# Configuration Priority: ANTHROPIC_AUTH_TOKEN > Host Config > None
 # Host config uses a copy mechanism to solve permission issues
 
 CLAUDE_CONFIGURED=false
@@ -50,33 +50,59 @@ if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
     # Create .claude directory for hagicode user
     mkdir -p /home/hagicode/.claude
 
-    # Write settings.json with custom Anthropic API configuration
+    # Build settings.json dynamically based on available configuration
+    SETTINGS_BASE=$(cat <<EOF
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
+EOF
+)
+
+    # Add ANTHROPIC_BASE_URL if custom URL is provided
     if [ -n "$ANTHROPIC_URL" ]; then
         echo "  Custom API URL: $ANTHROPIC_URL"
-        cat > /home/hagicode/.claude/settings.json << EOF
-{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
-    "ANTHROPIC_BASE_URL": "${ANTHROPIC_URL}",
-    "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}"
-  }
-}
-EOF
-    else
-        # No custom URL, use Anthropic's official default
-        cat > /home/hagicode/.claude/settings.json << EOF
-{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
-    "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}"
-  }
-}
-EOF
+        SETTINGS_BASE="${SETTINGS_BASE}
+    \"ANTHROPIC_BASE_URL\": \"${ANTHROPIC_URL}\","
     fi
+
+    # Add common settings
+    SETTINGS_BASE="${SETTINGS_BASE}
+    \"API_TIMEOUT_MS\": \"3000000\",
+    \"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC\": 1,
+    \"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS\": \"${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}\""
+
+    # Add model configurations only if variables are set
+    if [ -n "$ANTHROPIC_SONNET_MODEL" ] || [ -n "$ANTHROPIC_OPUS_MODEL" ] || [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
+        SETTINGS_BASE="${SETTINGS_BASE},"
+
+        if [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
+            SETTINGS_BASE="${SETTINGS_BASE}
+    \"ANTHROPIC_DEFAULT_HAIKU_MODEL\": \"${ANTHROPIC_HAIKU_MODEL}\""
+        fi
+
+        if [ -n "$ANTHROPIC_SONNET_MODEL" ]; then
+            # Add comma if Haiku model was also set
+            if [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
+                SETTINGS_BASE="${SETTINGS_BASE},"
+            fi
+            SETTINGS_BASE="${SETTINGS_BASE}
+    \"ANTHROPIC_DEFAULT_SONNET_MODEL\": \"${ANTHROPIC_SONNET_MODEL}\""
+        fi
+
+        if [ -n "$ANTHROPIC_OPUS_MODEL" ]; then
+            # Add comma if Haiku or Sonnet model was also set
+            if [ -n "$ANTHROPIC_HAIKU_MODEL" ] || [ -n "$ANTHROPIC_SONNET_MODEL" ]; then
+                SETTINGS_BASE="${SETTINGS_BASE},"
+            fi
+            SETTINGS_BASE="${SETTINGS_BASE}
+    \"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"${ANTHROPIC_OPUS_MODEL}\""
+        fi
+    fi
+
+    # Close the JSON
+    echo "${SETTINGS_BASE}
+  }
+}" > /home/hagicode/.claude/settings.json
 
     # Write .claude.json to skip onboarding
     cat > /home/hagicode/.claude.json << EOF
@@ -92,49 +118,7 @@ EOF
     CLAUDE_CONFIGURED=true
     echo "✓ Claude Code configured with custom Anthropic API endpoint"
 
-# 2. If ANTHROPIC_AUTH_TOKEN is not set, check for ZAI_API_KEY
-elif [ -n "$ZAI_API_KEY" ]; then
-    echo "✓ Configuring Claude Code with ZAI API endpoint..."
-    echo "  Source: ZAI_API_KEY environment variable"
-
-    # Set default model versions (can be overridden via environment variables)
-    ZAI_SONNET_MODEL="${ZAI_SONNET_MODEL:-glm-4.7}"
-    ZAI_OPUS_MODEL="${ZAI_OPUS_MODEL:-glm-4.7}"
-
-    # Create .claude directory for hagicode user
-    mkdir -p /home/hagicode/.claude
-
-    # Write settings.json with ZAI API configuration
-    cat > /home/hagicode/.claude/settings.json << EOF
-{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "${ZAI_API_KEY}",
-    "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-    "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.5-air",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "${ZAI_SONNET_MODEL}",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "${ZAI_OPUS_MODEL}"
-  }
-}
-EOF
-
-    # Write .claude.json to skip onboarding
-    cat > /home/hagicode/.claude.json << EOF
-{
-  "hasCompletedOnboarding": true
-}
-EOF
-
-    # Ensure proper ownership
-    chown -R hagicode:hagicode /home/hagicode/.claude /home/hagicode/.claude.json
-    chmod 600 /home/hagicode/.claude/settings.json
-
-    CLAUDE_CONFIGURED=true
-    echo "✓ Claude Code configured with ZAI API endpoint"
-
-# 3. If neither ANTHROPIC_AUTH_TOKEN nor ZAI_API_KEY is set, check for mounted Claude config (host config)
+# 2. If ANTHROPIC_AUTH_TOKEN is not set, check for mounted Claude config (host config)
 # Auto-detect host configuration unless explicitly disabled
 else
     # Default mount path is /claude-mount, can be customized via CLAUDE_CONFIG_MOUNT_PATH
@@ -143,7 +127,7 @@ else
     # Check if host config is explicitly disabled
     if [ "$CLAUDE_HOST_CONFIG_ENABLED" = "false" ]; then
         echo "⚠ Warning: No Claude configuration found"
-        echo "  - ZAI_API_KEY is not set"
+        echo "  - ANTHROPIC_AUTH_TOKEN is not set"
         echo "  - Host configuration is explicitly disabled (CLAUDE_HOST_CONFIG_ENABLED=false)"
         echo "  → Claude Code features may not work properly"
     else
@@ -197,10 +181,10 @@ EOF
 
         else
             echo "⚠ Warning: No Claude configuration found"
-            echo "  - ZAI_API_KEY is not set"
+            echo "  - ANTHROPIC_AUTH_TOKEN is not set"
             echo "  - No host configuration found at $MOUNT_PATH"
             echo "  → Claude Code features may not work properly"
-            echo "  → Set ZAI_API_KEY or mount host config to use Claude Code"
+            echo "  → Set ANTHROPIC_AUTH_TOKEN or mount host config to use Claude Code"
         fi
     fi
 fi

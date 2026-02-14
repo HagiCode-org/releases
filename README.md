@@ -174,6 +174,8 @@ nuke Release --Version v1.0.0
 
 ## Configuration
 
+> **Environment Variables Reference**: For comprehensive documentation of all supported environment variables, see [Container Environment Variables Documentation](docs/container-environment-variables.md).
+
 ### Environment Variables
 
 | Variable | Description | Required |

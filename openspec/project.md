@@ -195,9 +195,10 @@ Optional:
 - `ALIYUN_ACR_REGISTRY` - Aliyun ACR URL (default: `registry.cn-hangzhou.aliyuncs.com`)
 - `AZURE_ACR_REGISTRY` - Azure ACR URL (default: `hagicode.azurecr.io`)
 
-Docker Container Optional (for ZAI API):
-- `ZAI_SONNET_MODEL` - Sonnet layer model version (default: `glm-4.7`)
-- `ZAI_OPUS_MODEL` - Opus layer model version (default: `glm-4.7`)
+Docker Container Optional (for Claude Code models):
+- `ANTHROPIC_SONNET_MODEL` - Sonnet layer model version (configured when set)
+- `ANTHROPIC_OPUS_MODEL` - Opus layer model version (configured when set)
+- `ANTHROPIC_HAIKU_MODEL` - Haiku layer model version (configured when set)
 - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` - Enable Agent Teams multi-agent collaboration feature (default: `1`, set to `0` or empty to disable)
 
 ## Project Structure
