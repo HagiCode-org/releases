@@ -119,6 +119,7 @@ jobs:
           Platform: all
           ReleaseVersion: ${{ steps.version.outputs.version }}
           BuildAllChannels: ${{ steps.version.outputs.build_all_channels }}
+          PushToRegistry: true
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DockerUsername: ${{ secrets.DOCKER_USERNAME }}
           DockerPassword: ${{ secrets.DOCKER_PASSWORD }}

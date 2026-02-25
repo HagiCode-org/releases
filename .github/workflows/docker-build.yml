@@ -43,6 +43,7 @@ jobs:
         env:
           Platform: all
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          PushToRegistry: false
       - name: 'Publish: download'
         uses: actions/upload-artifact@v4
         with:

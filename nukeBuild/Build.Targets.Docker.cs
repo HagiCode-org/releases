@@ -12,10 +12,12 @@ using System.Diagnostics;
 /// Supports multi-architecture builds (linux/amd64, linux/arm64)
 ///
 /// For multi-architecture builds:
-/// - Base image is pushed immediately to registry using type=registry output
-/// - Base image availability is verified before application build starts
-/// - Retry logic with exponential backoff handles registry propagation delays
-/// - Configure retry behavior via DOCKER_VERIFY_MAX_RETRIES environment variable (default: 5)
+/// - Local builds (main branch): Build each platform separately to local Docker
+/// - Release builds (tags): Build and push multi-arch manifests to registry
+/// - After push to Docker Hub, sync to other registries (Aliyun, Azure)
+///
+/// Environment variables:
+/// - PushToRegistry: true to push to registry, false for local-only builds
 /// </summary>
 partial class Build
 {
@@ -46,13 +48,13 @@ partial class Build
     bool IsMultiArchBuild => TargetDockerPlatforms.Count > 1;
 
     Target DockerLogin => _ => _
-        .DependsOn(Extract)
+        .DependsOn(DockerBuild)
         .Requires(() => DockerUsername)
         .Requires(() => DockerPassword)
         .Executes(DockerLoginExecute);
 
     Target DockerBuild => _ => _
-        .DependsOn(DockerLogin)
+        .DependsOn(Extract)
         .Requires(() => DockerImageName)
         .Produces(OutputDirectory / "docker-image-built.txt")
         .Executes(DockerBuildExecute);
@@ -61,21 +63,45 @@ partial class Build
         .DependsOn(DockerBuild)
         .Requires(() => DockerUsername)
         .Requires(() => DockerPassword)
-        .Executes(DockerPushExecute);
+        .Executes(() =>
+        {
+            if (!PushToRegistry)
+            {
+                Log.Information("PushToRegistry=false: Skipping Docker Hub push (images already pushed by DockerBuild)");
+                return;
+            }
+            DockerPushExecute();
+        });
 
     Target DockerPushAzure => _ => _
         .DependsOn(DockerBuild)
         .Requires(() => AzureAcrUsername)
         .Requires(() => AzureAcrPassword)
         .Requires(() => AzureAcrRegistry)
-        .Executes(DockerPushAzureExecute);
+        .Executes(() =>
+        {
+            if (!PushToRegistry)
+            {
+                Log.Information("PushToRegistry=false: Skipping Azure ACR push");
+                return;
+            }
+            DockerPushAzureExecute();
+        });
 
     Target DockerPushAliyun => _ => _
         .DependsOn(DockerBuild)
         .Requires(() => AliyunAcrUsername)
         .Requires(() => AliyunAcrPassword)
         .Requires(() => AliyunAcrRegistry)
-        .Executes(DockerPushAliyunExecute);
+        .Executes(() =>
+        {
+            if (!PushToRegistry)
+            {
+                Log.Information("PushToRegistry=false: Skipping Aliyun ACR push");
+                return;
+            }
+            DockerPushAliyunExecute();
+        });
 
     Target DockerPushAll => _ => _
         .DependsOn(DockerPush, DockerPushAliyun, DockerPushAzure)
@@ -111,8 +137,8 @@ partial class Build
         // Step 2: Build base image(s)
         BuildDockerBaseImage();
 
-        // Step 2.5: Verify base image availability in registry (for multi-arch builds)
-        if (IsMultiArchBuild)
+        // Step 2.5: Verify base image availability in registry (only for multi-arch builds with push enabled)
+        if (IsMultiArchBuild && PushToRegistry)
         {
             VerifyBaseImageAvailable(BaseDockerTag);
         }
@@ -196,65 +222,97 @@ partial class Build
 
     /// <summary>
     /// Build multi-architecture base image using buildx
-    /// Image is immediately pushed to registry to ensure availability for application builds
+    /// When PushToRegistry is true, pushes to registry and verifies availability
+    /// When PushToRegistry is false, exports to tar and loads to local Docker for local builds
     /// </summary>
     void BuildMultiArchBaseImage()
     {
         Log.Information("Building multi-architecture base image: {BaseTag}", BaseDockerTag);
         Log.Information("  Platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
         Log.Information("  Context: {Context}", DockerDeploymentDirectory);
-        Log.Information("  Output type: registry (push immediately to registry)");
+        Log.Information("  Push to registry: {Push}", PushToRegistry);
 
         // Create multi-arch builder if it doesn't exist
         EnsureBuildxBuilder("hagicode-multiarch");
 
         var platformsArg = string.Join(",", TargetDockerPlatforms);
         var buildxBaseTag = $"{BaseImageName}:base-{FullVersion}";
+        var tempTarPath = OutputDirectory / "base-image.tar";
 
-        var process = new Process
+        if (PushToRegistry)
         {
-            StartInfo = new ProcessStartInfo
+            // For tag builds: push directly to registry
+            var outputType = "registry";
+
+            var process = new Process
             {
-                FileName = "docker",
-                Arguments = $"buildx build " +
-                            $"--platform {platformsArg} " +
-                            $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
-                            $"--tag \"{buildxBaseTag}\" " +
-                            $"--tag \"{BaseDockerTag}\" " +
-                            $"--output type=registry " +
-                            $"--builder hagicode-multiarch " +
-                            $"\"{DockerDeploymentDirectory}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            }
-        };
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = $"buildx build " +
+                                $"--platform {platformsArg} " +
+                                $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
+                                $"--tag \"{buildxBaseTag}\" " +
+                                $"--tag \"{BaseDockerTag}\" " +
+                                $"--output {outputType} " +
+                                $"--builder hagicode-multiarch " +
+                                $"\"{DockerDeploymentDirectory}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
 
-        Log.Information("Starting buildx build process...");
-        process.Start();
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+            Log.Information("Starting buildx build process (output type: {OutputType})...", outputType);
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
 
-        if (process.ExitCode != 0)
-        {
-            Log.Error("Multi-arch base image build failed");
-            Log.Error("Exit code: {ExitCode}", process.ExitCode);
-            Log.Error("Error: {Error}", error);
-
-            // Check for authentication errors
-            if (error.Contains("unauthorized") || error.Contains("denied") || error.Contains("401"))
+            if (process.ExitCode != 0)
             {
-                Log.Error("This appears to be an authentication error. Please check your registry credentials.");
-                throw new Exception($"Failed to build multi-architecture base image (authentication error): {error}");
+                Log.Error("Multi-arch base image build failed");
+                Log.Error("Exit code: {ExitCode}", process.ExitCode);
+                Log.Error("Error: {Error}", error);
+
+                if (error.Contains("unauthorized") || error.Contains("denied") || error.Contains("401"))
+                {
+                    Log.Error("This appears to be an authentication error. Please check your registry credentials.");
+                    throw new Exception($"Failed to build multi-architecture base image (authentication error): {error}");
+                }
+
+                throw new Exception($"Failed to build multi-architecture base image: {error}");
             }
 
-            throw new Exception($"Failed to build multi-architecture base image: {error}");
+            Log.Information("✓ Multi-architecture base image built and pushed to registry: {BaseTag}", BaseDockerTag);
         }
+        else
+        {
+            // For main branch builds: build each platform separately and load to local Docker
+            Log.Information("Building base image for each platform separately (local build mode)");
 
-        Log.Information("✓ Multi-architecture base image built and pushed to registry: {BaseTag}", BaseDockerTag);
-        Log.Information("✓ Additional tag: {BuildxBaseTag}", buildxBaseTag);
-        Log.Debug("Build output: {Output}", output);
+            foreach (var platform in TargetDockerPlatforms)
+            {
+                var platformTag = $"{BaseImageName}:base-{FullVersion}-{platform.Replace("/", "-")}";
+                var dockerfile = platform.Contains("arm64") ? "Dockerfile.base.arm64" : "Dockerfile.base";
+
+                Log.Information("Building platform {Platform}: {Tag}", platform, platformTag);
+
+                DockerTasks.DockerBuild(s => s
+                    .SetPath(DockerDeploymentDirectory)
+                    .SetFile(DockerDeploymentDirectory / dockerfile)
+                    .SetTag(BaseDockerTag)
+                    .SetTag(platformTag)
+                    .SetPlatform(platform)
+                    .EnableRm()
+                    .EnablePull());
+
+                Log.Information("✓ Platform {Platform} base image built: {Tag}", platform, BaseDockerTag);
+            }
+
+            Log.Information("✓ All platform base images built locally: {BaseTag}", BaseDockerTag);
+            Log.Information("  Note: Local builds use single-platform Dockerfile, tags: {BaseTag}", BaseDockerTag);
+        }
     }
 
     /// <summary>
@@ -386,48 +444,78 @@ partial class Build
 
     /// <summary>
     /// Build multi-architecture application image using buildx
+    /// When PushToRegistry is true, pushes to registry
+    /// When PushToRegistry is false, builds each platform separately to local Docker
     /// </summary>
     void BuildMultiArchApplicationImage(List<string> tags)
     {
         Log.Information("Building multi-architecture application image");
         Log.Information("  Platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
         Log.Information("  Context: {Context}", DockerBuildContext);
+        Log.Information("  Push to registry: {Push}", PushToRegistry);
 
-        var platformsArg = string.Join(",", TargetDockerPlatforms);
-        var tagsArg = string.Join(" ", tags.Select(t => $"--tag \"{t}\""));
-
-        var process = new Process
+        if (PushToRegistry)
         {
-            StartInfo = new ProcessStartInfo
+            // For tag builds: use buildx to push multi-arch manifest to registry
+            var platformsArg = string.Join(",", TargetDockerPlatforms);
+            var tagsArg = string.Join(" ", tags.Select(t => $"--tag \"{t}\""));
+
+            var process = new Process
             {
-                FileName = "docker",
-                Arguments = $"buildx build " +
-                            $"--platform {platformsArg} " +
-                            $"{tagsArg} " +
-                            $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
-                            $"--builder hagicode-multiarch " +
-                            $"--output type=image,push=false " +
-                            $"--build-arg \"VERSION={FullVersion}\" " +
-                            $"\"{DockerBuildContext}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = $"buildx build " +
+                                $"--platform {platformsArg} " +
+                                $"{tagsArg} " +
+                                $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
+                                $"--builder hagicode-multiarch " +
+                                $"--output type=registry " +
+                                $"--build-arg \"VERSION={FullVersion}\" " +
+                                $"\"{DockerBuildContext}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                Log.Error("Multi-arch application build failed: {Error}", error);
+                throw new Exception($"Failed to build multi-architecture application image: {error}");
             }
-        };
 
-        process.Start();
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-        {
-            Log.Error("Multi-arch application build failed: {Error}", error);
-            throw new Exception($"Failed to build multi-architecture application image: {error}");
+            Log.Information("✓ Multi-architecture application image built and pushed to registry");
+            Log.Debug("Build output: {Output}", output);
         }
+        else
+        {
+            // For main branch builds: build each platform separately to local Docker
+            Log.Information("Building application image for each platform separately (local build mode)");
 
-        Log.Information("✓ Multi-architecture application image built successfully");
-        Log.Debug("Build output: {Output}", output);
+            foreach (var platform in TargetDockerPlatforms)
+            {
+                Log.Information("Building platform {Platform}", platform);
+
+                DockerTasks.DockerBuild(s => s
+                    .SetPath(DockerBuildContext)
+                    .SetFile(DockerBuildContext / "Dockerfile")
+                    .SetTag(tags)
+                    .SetPlatform(platform)
+                    .SetBuildArg($"VERSION={FullVersion}")
+                    .EnableRm()
+                    .EnablePull());
+
+                Log.Information("✓ Platform {Platform} application image built", platform);
+            }
+
+            Log.Information("✓ All platform application images built locally");
+        }
     }
 
     void DockerLoginExecute()
@@ -503,38 +591,40 @@ partial class Build
 
     /// <summary>
     /// Push multi-architecture image manifests to a registry
+    /// Pulls from Docker Hub and pushes to target registry (no rebuild)
     /// </summary>
     void PushMultiArchImages(string registry, string username, string password)
     {
-        Log.Information("Pushing multi-architecture images to {Registry}", registry);
+        Log.Information("Syncing multi-architecture images to {Registry}", registry);
+        Log.Information("  Source: Docker Hub ({SourceTag})", BaseImageName);
 
         var tags = GetAppDockerTags();
-        var platformsArg = string.Join(",", TargetDockerPlatforms);
 
-        // Login to registry
+        // Login to target registry
         DockerTasks.DockerLogin(s => s
             .SetServer(registry)
             .SetUsername(username)
             .SetPassword(password));
 
-        // Push each tag as a multi-architecture manifest
+        // For each tag, pull from Docker Hub, re-tag, and push to target registry
         foreach (var tag in tags)
         {
-            Log.Information("Pushing multi-arch manifest: {Tag}", tag);
+            // Extract tag part after the registry
+            var tagPart = tag.Substring(tag.IndexOf(':') + 1);
+            var targetTag = $"{registry}/{DockerImageName}:{tagPart}";
 
+            Log.Information("Syncing {SourceTag} -> {TargetTag}", tag, targetTag);
+
+            // Use docker buildx imagetools to create manifest and push
+            // This pulls the multi-arch manifest from Docker Hub and pushes to target
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "docker",
-                    Arguments = $"buildx build " +
-                                $"--platform {platformsArg} " +
-                                $"--tag \"{tag}\" " +
-                                $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
-                                $"--builder hagicode-multiarch " +
-                                $"--output type=registry " +
-                                $"--build-arg \"VERSION={FullVersion}\" " +
-                                $"\"{DockerBuildContext}\"",
+                    Arguments = $"buildx imagetools create " +
+                                $"--tag \"{targetTag}\" " +
+                                $"\"{tag}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false
@@ -548,12 +638,43 @@ partial class Build
 
             if (process.ExitCode != 0)
             {
-                Log.Error("Failed to push multi-arch manifest {Tag}: {Error}", tag, error);
-                throw new Exception($"Failed to push multi-architecture manifest: {error}");
+                Log.Error("Failed to sync multi-arch manifest {Tag}: {Error}", tag, error);
+                throw new Exception($"Failed to sync multi-architecture manifest: {error}");
             }
 
-            Log.Information("✓ Pushed multi-arch manifest: {Tag}", tag);
+            Log.Information("✓ Synced multi-arch manifest: {TargetTag}", targetTag);
         }
+
+        // Also sync the base image
+        var baseTargetTag = $"{registry}/{DockerImageName}:base";
+        Log.Information("Syncing base image {SourceTag} -> {TargetTag}", BaseDockerTag, baseTargetTag);
+
+        var baseProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"buildx imagetools create " +
+                            $"--tag \"{baseTargetTag}\" " +
+                            $"\"{BaseDockerTag}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            }
+        };
+
+        baseProcess.Start();
+        var baseOutput = baseProcess.StandardOutput.ReadToEnd();
+        var baseError = baseProcess.StandardError.ReadToEnd();
+        baseProcess.WaitForExit();
+
+        if (baseProcess.ExitCode != 0)
+        {
+            Log.Error("Failed to sync base image: {Error}", baseError);
+            throw new Exception($"Failed to sync base image: {baseError}");
+        }
+
+        Log.Information("✓ Synced base image: {TargetTag}", baseTargetTag);
     }
 
     /// <summary>

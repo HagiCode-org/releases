@@ -144,9 +144,20 @@ partial class Build : Nuke.Common.NukeBuild
     // ==========================================================================
 
     Target Release => _ => _
-        .DependsOn(DockerPushAll, GitHubRelease)
+        .DependsOn(DockerBuild, DockerPushAliyun, DockerPushAzure, GitHubRelease)
         .Executes(() =>
         {
             Log.Information("Release workflow completed successfully");
+            if (PushToRegistry)
+            {
+                Log.Information("  - Images pushed to Docker Hub (via DockerBuild)");
+                Log.Information("  - Images synced to Aliyun ACR (via DockerPushAliyun)");
+                Log.Information("  - Images synced to Azure ACR (via DockerPushAzure)");
+                Log.Information("  - GitHub Release created (via GitHubRelease)");
+            }
+            else
+            {
+                Log.Warning("  PushToRegistry=false: Only local builds performed, no images pushed");
+            }
         });
 }

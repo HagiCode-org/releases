@@ -27,6 +27,15 @@ partial class Build
     [Parameter("Build all channels' latest versions instead of a specific version")]
     bool BuildAllChannels { get; set; }
 
+    /// <summary>
+    /// Gets or sets whether to push images to registry during build
+    /// When false, images are only built locally (for main branch builds)
+    /// When true, images are pushed to registry (for tag/release builds)
+    /// Default: false
+    /// </summary>
+    [Parameter("Push images to registry during build")]
+    bool PushToRegistry { get; set; }
+
     // ==========================================================================
     // State
     // ==========================================================================
