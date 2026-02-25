@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
+using System.Threading;
 
 /// <summary>
 /// Docker targets - builds, logs in, and pushes Docker images
@@ -18,6 +19,8 @@ using System.Diagnostics;
 ///
 /// Environment variables:
 /// - PushToRegistry: true to push to registry, false for local-only builds
+/// - DOCKER_BUILD_TIMEOUT_SECONDS: Timeout for Docker build operations in seconds (default: 3600)
+/// - DOCKER_VERIFY_MAX_RETRIES: Maximum retries for base image verification (default: 5)
 /// </summary>
 partial class Build
 {
@@ -164,31 +167,18 @@ partial class Build
     {
         Log.Information("Setting up QEMU for cross-architecture builds");
 
-        var process = new Process
+        try
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = "run --privileged --rm tonistiigi/binfmt --install all",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            }
-        };
-
-        process.Start();
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-        {
-            Log.Warning("QEMU setup completed with warnings: {Error}", error);
+            ExecuteProcessWithStreamingOutput(
+                "docker",
+                "run --privileged --rm tonistiigi/binfmt --install all",
+                "QEMU setup",
+                enableHeartbeat: false
+            );
         }
-        else
+        catch (Exception ex)
         {
-            Log.Information("✓ QEMU setup completed successfully");
-            Log.Debug("QEMU output: {Output}", output);
+            Log.Warning("QEMU setup completed with warnings: {Error}", ex.Message);
         }
     }
 
@@ -244,44 +234,31 @@ partial class Build
             // For tag builds: push directly to registry
             var outputType = "registry";
 
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "docker",
-                    Arguments = $"buildx build " +
-                                $"--platform {platformsArg} " +
-                                $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
-                                $"--tag \"{buildxBaseTag}\" " +
-                                $"--tag \"{BaseDockerTag}\" " +
-                                $"--output {outputType} " +
-                                $"--builder hagicode-multiarch " +
-                                $"\"{DockerDeploymentDirectory}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false
-                }
-            };
+            var arguments = $"buildx build " +
+                            $"--platform {platformsArg} " +
+                            $"--progress=plain " +
+                            $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
+                            $"--tag \"{buildxBaseTag}\" " +
+                            $"--tag \"{BaseDockerTag}\" " +
+                            $"--output {outputType} " +
+                            $"--builder hagicode-multiarch " +
+                            $"\"{DockerDeploymentDirectory}\"";
 
             Log.Information("Starting buildx build process (output type: {OutputType})...", outputType);
-            process.Start();
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
 
-            if (process.ExitCode != 0)
+            try
             {
-                Log.Error("Multi-arch base image build failed");
-                Log.Error("Exit code: {ExitCode}", process.ExitCode);
-                Log.Error("Error: {Error}", error);
-
-                if (error.Contains("unauthorized") || error.Contains("denied") || error.Contains("401"))
-                {
-                    Log.Error("This appears to be an authentication error. Please check your registry credentials.");
-                    throw new Exception($"Failed to build multi-architecture base image (authentication error): {error}");
-                }
-
-                throw new Exception($"Failed to build multi-architecture base image: {error}");
+                ExecuteProcessWithStreamingOutput(
+                    "docker",
+                    arguments,
+                    "Multi-arch base image build and registry push",
+                    enableHeartbeat: true
+                );
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Multi-arch base image build failed: {Error}", ex.Message);
+                throw;
             }
 
             Log.Information("✓ Multi-architecture base image built and pushed to registry: {BaseTag}", BaseDockerTag);
@@ -302,39 +279,29 @@ partial class Build
                 Log.Information("Building platform {Platform}: {Tag}", platform, platformTag);
                 Log.Debug("  Dockerfile: {Dockerfile}", dockerfile);
 
-                // Use raw docker command for better control over platform builds
-                var buildProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "docker",
-                        Arguments = $"build " +
+                var buildArguments = $"build " +
                                     $"--platform {platform} " +
                                     $"--tag \"{platformTag}\" " +
                                     $"--file \"{DockerDeploymentDirectory / dockerfile}\" " +
                                     $"--rm " +
-                                    $"\"{DockerDeploymentDirectory}\"",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false
-                    }
-                };
+                                    $"\"{DockerDeploymentDirectory}\"";
 
-                buildProcess.Start();
-                var output = buildProcess.StandardOutput.ReadToEnd();
-                var error = buildProcess.StandardError.ReadToEnd();
-                buildProcess.WaitForExit();
-
-                if (buildProcess.ExitCode != 0)
+                try
                 {
-                    Log.Error("Failed to build base image for platform {Platform}", platform);
-                    Log.Error("Error: {Error}", error);
-                    throw new Exception($"Failed to build base image for platform {platform}: {error}");
+                    ExecuteProcessWithStreamingOutput(
+                        "docker",
+                        buildArguments,
+                        $"Base image build for platform {platform}",
+                        enableHeartbeat: false
+                    );
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Failed to build base image for platform {Platform}: {Error}", platform, ex.Message);
+                    throw;
                 }
 
                 platformBaseTags[platform] = platformTag;
-                Log.Information("✓ Platform {Platform} base image built: {Tag}", platform, platformTag);
-                Log.Debug("  Build output: {Output}", output);
             }
 
             Log.Information("✓ All platform base images built locally");
@@ -365,54 +332,56 @@ partial class Build
     {
         Log.Information("Ensuring buildx builder '{Builder}' exists", builderName);
 
-        // Check if builder exists
-        var checkProcess = new Process
+        // Check if builder exists using streaming output
+        var checkOutput = new System.Text.StringBuilder();
+        using (var checkProcess = new Process
         {
             StartInfo = new ProcessStartInfo
             {
                 FileName = "docker",
                 Arguments = "buildx ls",
                 RedirectStandardOutput = true,
-                UseShellExecute = false
-            }
-        };
+                UseShellExecute = false,
+                CreateNoWindow = true
+            },
+            EnableRaisingEvents = true
+        })
+        {
+            checkProcess.OutputDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    Log.Debug(e.Data);
+                    checkOutput.AppendLine(e.Data);
+                }
+            };
 
-        checkProcess.Start();
-        var output = checkProcess.StandardOutput.ReadToEnd();
-        checkProcess.WaitForExit();
+            checkProcess.Start();
+            checkProcess.BeginOutputReadLine();
+            checkProcess.WaitForExit();
+        }
 
-        if (output.Contains(builderName))
+        if (checkOutput.ToString().Contains(builderName))
         {
             Log.Information("Builder '{Builder}' already exists", builderName);
             return;
         }
 
-        // Create builder
+        // Create builder using streaming output
         Log.Information("Creating buildx builder '{Builder}'...", builderName);
-        var createProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = $"buildx create --name {builderName} --driver docker-container --use",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            }
-        };
 
-        createProcess.Start();
-        var createOutput = createProcess.StandardOutput.ReadToEnd();
-        var createError = createProcess.StandardError.ReadToEnd();
-        createProcess.WaitForExit();
-
-        if (createProcess.ExitCode != 0)
+        try
         {
-            Log.Warning("Builder creation had issues: {Error}", createError);
+            ExecuteProcessWithStreamingOutput(
+                "docker",
+                $"buildx create --name {builderName} --driver docker-container --use",
+                $"Create buildx builder '{builderName}'",
+                enableHeartbeat: false
+            );
         }
-        else
+        catch (Exception ex)
         {
-            Log.Information("✓ Builder '{Builder}' created successfully", builderName);
+            Log.Warning("Builder creation had issues: {Error}", ex.Message);
         }
     }
 
@@ -503,38 +472,32 @@ partial class Build
             var platformsArg = string.Join(",", TargetDockerPlatforms);
             var tagsArg = string.Join(" ", tags.Select(t => $"--tag \"{t}\""));
 
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "docker",
-                    Arguments = $"buildx build " +
-                                $"--platform {platformsArg} " +
-                                $"{tagsArg} " +
-                                $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
-                                $"--builder hagicode-multiarch " +
-                                $"--output type=registry " +
-                                $"--build-arg \"VERSION={FullVersion}\" " +
-                                $"\"{DockerBuildContext}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false
-                }
-            };
+            var arguments = $"buildx build " +
+                            $"--platform {platformsArg} " +
+                            $"--progress=plain " +
+                            $"{tagsArg} " +
+                            $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
+                            $"--builder hagicode-multiarch " +
+                            $"--output type=registry " +
+                            $"--build-arg \"VERSION={FullVersion}\" " +
+                            $"\"{DockerBuildContext}\"";
 
-            process.Start();
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
+            try
             {
-                Log.Error("Multi-arch application build failed: {Error}", error);
-                throw new Exception($"Failed to build multi-architecture application image: {error}");
+                ExecuteProcessWithStreamingOutput(
+                    "docker",
+                    arguments,
+                    "Multi-arch application image build and registry push",
+                    enableHeartbeat: true
+                );
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Multi-arch application build failed: {Error}", ex.Message);
+                throw;
             }
 
             Log.Information("✓ Multi-architecture application image built and pushed to registry");
-            Log.Debug("Build output: {Output}", output);
         }
         else
         {
@@ -567,36 +530,28 @@ partial class Build
 
                 Log.Information("  Platform tags: {Tags}", string.Join(", ", platformTags));
 
-                // Use raw docker command for better control over platform builds
                 var tagsArg = string.Join(" ", platformTags.Select(t => $"--tag \"{t}\""));
-                var buildProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "docker",
-                        Arguments = $"build " +
+                var buildArguments = $"build " +
                                     $"--platform {platform} " +
                                     $"{tagsArg} " +
                                     $"--file \"{platformDockerfilePath}\" " +
                                     $"--build-arg \"VERSION={FullVersion}\" " +
                                     $"--rm " +
-                                    $"\"{DockerBuildContext}\"",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false
-                    }
-                };
+                                    $"\"{DockerBuildContext}\"";
 
-                buildProcess.Start();
-                var output = buildProcess.StandardOutput.ReadToEnd();
-                var error = buildProcess.StandardError.ReadToEnd();
-                buildProcess.WaitForExit();
-
-                if (buildProcess.ExitCode != 0)
+                try
                 {
-                    Log.Error("Failed to build application image for platform {Platform}", platform);
-                    Log.Error("Error: {Error}", error);
-                    throw new Exception($"Failed to build application image for platform {platform}: {error}");
+                    ExecuteProcessWithStreamingOutput(
+                        "docker",
+                        buildArguments,
+                        $"Application image build for platform {platform}",
+                        enableHeartbeat: false
+                    );
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Failed to build application image for platform {Platform}: {Error}", platform, ex.Message);
+                    throw;
                 }
 
                 Log.Information("✓ Platform {Platform} application image built", platform);
@@ -908,5 +863,204 @@ partial class Build
         }
 
         return tags;
+    }
+
+    /// <summary>
+    /// Executes a process with real-time output streaming to provide better visibility during long-running operations
+    /// </summary>
+    /// <param name="fileName">The executable to run</param>
+    /// <param name="arguments">Command line arguments</param>
+    /// <param name="operationDescription">Description of the operation for logging</param>
+    /// <param name="enableHeartbeat">Whether to enable periodic heartbeat logging during execution</param>
+    /// <returns>The exit code of the process</returns>
+    /// <exception cref="Exception">Thrown when the process exits with a non-zero exit code</exception>
+    int ExecuteProcessWithStreamingOutput(string fileName, string arguments, string operationDescription, bool enableHeartbeat = false)
+    {
+        var timeout = GetBuildTimeout();
+        var buildStartTime = DateTime.UtcNow;
+        var heartbeatTimer = enableHeartbeat ? StartHeartbeatTimer(operationDescription, buildStartTime) : null;
+        var stderrOutput = new System.Text.StringBuilder();
+        var stdoutOutput = new System.Text.StringBuilder();
+        var outputLock = new object();
+
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                },
+                EnableRaisingEvents = true
+            };
+
+            // Set up event handlers for real-time output streaming
+            process.OutputDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    lock (outputLock)
+                    {
+                        Log.Information("{Data}", e.Data);
+                        stdoutOutput.AppendLine(e.Data);
+                    }
+                }
+            };
+
+            process.ErrorDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    lock (outputLock)
+                    {
+                        Log.Warning("{Data}", e.Data);
+                        stderrOutput.AppendLine(e.Data);
+                    }
+                }
+            };
+
+            Log.Information("Starting: {Description}", operationDescription);
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            // Wait for process to complete with timeout
+            var completed = process.WaitForExit((int)timeout.TotalMilliseconds);
+
+            if (!completed)
+            {
+                process.Kill(entireProcessTree: true);
+                throw new Exception($"Operation '{operationDescription}' timed out after {timeout.TotalSeconds}s");
+            }
+
+            // Wait for async output handlers to finish
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                var error = stderrOutput.ToString();
+                var categorizedError = CategorizeBuildError(error);
+                throw new Exception($"Operation '{operationDescription}' failed with exit code {process.ExitCode}: {categorizedError}");
+            }
+
+            var elapsed = (int)(DateTime.UtcNow - buildStartTime).TotalSeconds;
+            Log.Information("✓ Completed: {Description} (took {Elapsed}s)", operationDescription, elapsed);
+            return process.ExitCode;
+        }
+        finally
+        {
+            heartbeatTimer?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Categorizes build errors based on common error patterns in Docker build output
+    /// Provides contextual guidance for common failure scenarios
+    /// </summary>
+    /// <param name="errorOutput">The error output from the build process</param>
+    /// <returns>A categorized error message with guidance</returns>
+    string CategorizeBuildError(string errorOutput)
+    {
+        if (string.IsNullOrWhiteSpace(errorOutput))
+        {
+            return "Unknown error (no error output available)";
+        }
+
+        var lowerError = errorOutput.ToLowerInvariant();
+
+        // Authentication errors
+        if (lowerError.Contains("unauthorized") || lowerError.Contains("denied") || lowerError.Contains("401"))
+        {
+            return "Authentication Error - Check registry credentials and permissions";
+        }
+
+        // Network errors
+        if (lowerError.Contains("timeout") || lowerError.Contains("connection refused") || lowerError.Contains("network"))
+        {
+            return "Network Error - Check network connectivity and registry availability";
+        }
+
+        // Storage errors
+        if (lowerError.Contains("no space left on device") || lowerError.Contains("disk full"))
+        {
+            return "Storage Error - Free disk space and retry";
+        }
+
+        // Missing dependencies
+        if (lowerError.Contains("command not found") || lowerError.Contains("not found: executable"))
+        {
+            return "Dependency Error - Install required tool or check PATH";
+        }
+
+        // Docker buildx specific errors
+        if (lowerError.Contains("multiple platforms feature is currently not supported"))
+        {
+            return "Buildx Error - Ensure buildx is installed and configured correctly";
+        }
+
+        // Registry errors
+        if (lowerError.Contains("manifest unknown") || lowerError.Contains("not found: manifest"))
+        {
+            return "Registry Error - Required image or manifest not found in registry";
+        }
+
+        // Return the error output if no specific category matched
+        var firstLines = errorOutput.Split('\n').Take(5).ToList();
+        return $"Build Error - {string.Join("; ", firstLines)}";
+    }
+
+    /// <summary>
+    /// Gets the build timeout from environment variable DOCKER_BUILD_TIMEOUT_SECONDS
+    /// Defaults to 3600 seconds (1 hour) if not set or invalid
+    /// </summary>
+    /// <returns>The timeout duration as a TimeSpan</returns>
+    TimeSpan GetBuildTimeout()
+    {
+        const int defaultTimeoutSeconds = 3600; // 1 hour
+
+        var envValue = Environment.GetEnvironmentVariable("DOCKER_BUILD_TIMEOUT_SECONDS");
+        if (string.IsNullOrEmpty(envValue))
+        {
+            return TimeSpan.FromSeconds(defaultTimeoutSeconds);
+        }
+
+        if (int.TryParse(envValue, out var timeoutSeconds) && timeoutSeconds > 0)
+        {
+            return TimeSpan.FromSeconds(timeoutSeconds);
+        }
+
+        Log.Warning("Invalid DOCKER_BUILD_TIMEOUT_SECONDS value: {Value}, using default of {Default}s",
+            envValue, defaultTimeoutSeconds);
+        return TimeSpan.FromSeconds(defaultTimeoutSeconds);
+    }
+
+    /// <summary>
+    /// Starts a heartbeat timer that logs periodic progress messages during long-running operations
+    /// Logs every 30 seconds after an initial 30-second delay
+    /// </summary>
+    /// <param name="operation">Description of the operation in progress</param>
+    /// <param name="startTime">The time when the operation started</param>
+    /// <returns>A disposable timer that should be disposed when the operation completes</returns>
+    IDisposable StartHeartbeatTimer(string operation, DateTime startTime)
+    {
+        var heartbeatTimer = new System.Threading.Timer(_ =>
+        {
+            var elapsed = (int)(DateTime.UtcNow - startTime).TotalSeconds;
+            Log.Information("{Operation} in progress... {Elapsed}s elapsed", operation, elapsed);
+
+            var timeout = GetBuildTimeout();
+            var remaining = (int)(timeout.TotalSeconds - elapsed);
+            if (remaining <= 60 && remaining > 0)
+            {
+                Log.Warning("Warning: Operation approaching timeout ({Remaining}s remaining)", remaining);
+            }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
+        return heartbeatTimer;
     }
 }
