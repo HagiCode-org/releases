@@ -4,10 +4,9 @@
 # Uses Ubuntu as base for better .NET compatibility
 #
 # CLI Tools Versions:
-# - Claude Code CLI: 2.1.15 (@anthropic-ai/claude-code@2.1.15)
+# - Claude Code CLI: 2.1.34 (@anthropic-ai/claude-code@2.1.34)
 # - OpenSpec CLI: >=1.0.0 <2.0.0 (@fission-ai/openspec@1, 最高支持 1.x)
 # - UIPro CLI: 2.1.3 (uipro-cli@2.1.3)
-# - Agent Browser: 0.6.0 (agent-browser@0.6.0)
 #
 # To update CLI tool versions, see versions.txt in the docker_deployment directory.
 #
@@ -78,12 +77,6 @@ RUN npm install -g @fission-ai/openspec@1 && \
 # This enables AI assistants to install and use UI/UX design skills
 RUN npm install -g uipro-cli@2.1.3 && \
     /home/hagicode/.npm-global/bin/uipro --version || echo "UIPro CLI installed" && \
-    npm cache clean --force
-
-# Install Agent Browser for headless browser automation
-# This enables AI agents to interact with web pages
-RUN npm install -g agent-browser@0.6.0 && \
-    /home/hagicode/.npm-global/bin/agent-browser --version || echo "Agent Browser installed" && \
     npm cache clean --force
 
 # Switch back to root for final setup

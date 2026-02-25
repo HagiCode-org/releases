@@ -4,10 +4,9 @@
 # Uses Ubuntu as base for better .NET compatibility
 #
 # CLI Tools Versions:
-# - Claude Code CLI: 2.1.15 (@anthropic-ai/claude-code@2.1.15)
+# - Claude Code CLI: 2.1.34 (@anthropic-ai/claude-code@2.1.34)
 # - OpenSpec CLI: >=1.0.0 <2.0.0 (@fission-ai/openspec@1, 最高支持 1.x)
 # - UIPro CLI: 2.1.3 (uipro-cli@2.1.3)
-# - Agent Browser: 0.6.0 (agent-browser@0.6.0)
 #
 # To update CLI tool versions, see versions.txt in the docker_deployment directory.
 #

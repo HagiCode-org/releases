@@ -45,20 +45,20 @@ partial class Build
     /// </summary>
     bool IsMultiArchBuild => TargetDockerPlatforms.Count > 1;
 
-    Target DockerBuild => _ => _
-        .DependsOn(Extract)
-        .Requires(() => DockerImageName)
-        .Produces(OutputDirectory / "docker-image-built.txt")
-        .Executes(DockerBuildExecute);
-
     Target DockerLogin => _ => _
-        .DependsOn(DockerBuild)
+        .DependsOn(Extract)
         .Requires(() => DockerUsername)
         .Requires(() => DockerPassword)
         .Executes(DockerLoginExecute);
 
-    Target DockerPush => _ => _
+    Target DockerBuild => _ => _
         .DependsOn(DockerLogin)
+        .Requires(() => DockerImageName)
+        .Produces(OutputDirectory / "docker-image-built.txt")
+        .Executes(DockerBuildExecute);
+
+    Target DockerPush => _ => _
+        .DependsOn(DockerBuild)
         .Requires(() => DockerUsername)
         .Requires(() => DockerPassword)
         .Executes(DockerPushExecute);
