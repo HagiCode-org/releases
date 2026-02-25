@@ -46,6 +46,12 @@ partial class Build
     List<(string channel, string version)> DownloadedVersions { get; set; } = new();
 
     /// <summary>
+    /// Stores platform-specific base image tags for local builds
+    /// Key: platform (e.g., "linux/amd64"), Value: image tag (e.g., "docker.io/newbe36524/hagicode:base-0.1.0-beta.15-linux-amd64")
+    /// </summary>
+    Dictionary<string, string> PlatformBaseTags { get; set; } = new();
+
+    /// <summary>
     /// Gets the effective version to use for Docker builds
     /// Returns the first downloaded version, or falls back to ReleaseVersion
     /// </summary>

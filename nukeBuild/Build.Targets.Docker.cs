@@ -291,6 +291,9 @@ partial class Build
             // For main branch builds: build each platform separately and load to local Docker
             Log.Information("Building base image for each platform separately (local build mode)");
 
+            // Store platform-specific base image tags for later use
+            var platformBaseTags = new Dictionary<string, string>();
+
             foreach (var platform in TargetDockerPlatforms)
             {
                 var platformTag = $"{BaseImageName}:base-{FullVersion}-{platform.Replace("/", "-")}";
@@ -301,17 +304,20 @@ partial class Build
                 DockerTasks.DockerBuild(s => s
                     .SetPath(DockerDeploymentDirectory)
                     .SetFile(DockerDeploymentDirectory / dockerfile)
-                    .SetTag(BaseDockerTag)
                     .SetTag(platformTag)
                     .SetPlatform(platform)
                     .EnableRm()
                     .EnablePull());
 
-                Log.Information("✓ Platform {Platform} base image built: {Tag}", platform, BaseDockerTag);
+                platformBaseTags[platform] = platformTag;
+                Log.Information("✓ Platform {Platform} base image built: {Tag}", platform, platformTag);
             }
 
-            Log.Information("✓ All platform base images built locally: {BaseTag}", BaseDockerTag);
-            Log.Information("  Note: Local builds use single-platform Dockerfile, tags: {BaseTag}", BaseDockerTag);
+            Log.Information("✓ All platform base images built locally");
+            Log.Information("  Platform-specific tags: {Tags}", string.Join(", ", platformBaseTags.Values));
+
+            // Store for use in application build
+            PlatformBaseTags = platformBaseTags;
         }
     }
 
@@ -502,9 +508,21 @@ partial class Build
             {
                 Log.Information("Building platform {Platform}", platform);
 
+                // Get the platform-specific base image tag
+                var platformBaseTag = PlatformBaseTags.TryGetValue(platform, out var tag)
+                    ? tag
+                    : BaseDockerTag;
+
+                Log.Information("  Using base image: {BaseTag}", platformBaseTag);
+
+                // Generate platform-specific Dockerfile with correct base image
+                var dockerfileContent = GenerateAppDockerfile(platformBaseTag);
+                var platformDockerfilePath = DockerBuildContext / $"Dockerfile.{platform.Replace("/", "-")}";
+                System.IO.File.WriteAllText(platformDockerfilePath, dockerfileContent);
+
                 DockerTasks.DockerBuild(s => s
                     .SetPath(DockerBuildContext)
-                    .SetFile(DockerBuildContext / "Dockerfile")
+                    .SetFile(platformDockerfilePath)
                     .SetTag(tags)
                     .SetPlatform(platform)
                     .SetBuildArg($"VERSION={FullVersion}")
@@ -516,6 +534,19 @@ partial class Build
 
             Log.Information("✓ All platform application images built locally");
         }
+    }
+
+    /// <summary>
+    /// Generates the application Dockerfile content
+    /// </summary>
+    string GenerateAppDockerfile(string baseImageTag = null)
+    {
+        var templateContent = System.IO.File.ReadAllText(DockerDeploymentDirectory / "Dockerfile.app.template");
+        var baseTagToUse = baseImageTag ?? BaseDockerTag;
+        return templateContent
+            .Replace("{version}", FullVersion)
+            .Replace("{build_date}", BuildDate)
+            .Replace("{base_image_name}:base", baseTagToUse);
     }
 
     void DockerLoginExecute()
