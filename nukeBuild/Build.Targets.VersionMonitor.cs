@@ -257,14 +257,16 @@ partial class Build
         {
             try
             {
+                // Query for recent repository_dispatch workflow runs
+                // Using a simpler jq expression to get workflow run data as JSON array
                 var processInfo = new ProcessStartInfo
                 {
                     FileName = "gh",
                     ArgumentList =
                     {
                         "api",
-                        $"/repos/{repository}/actions/runs",
-                        "--jq", ".workflow_runs[] | select(.event == \"repository_dispatch\") | {id, name, created_at, event: .event}"
+                        $"/repos/{repository}/actions/runs?per_page=10",
+                        "--jq", ".workflow_runs | map(select(.event == \"repository_dispatch\")) | .[] | \"\\(.id)\\t\\(.created_at)\""
                     },
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -284,58 +286,44 @@ partial class Build
                 }
 
                 var output = process.StandardOutput.ReadToEnd();
+                var error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
 
                 if (process.ExitCode != 0)
                 {
-                    var error = process.StandardError.ReadToEnd();
-                    Log.Warning("gh api query failed: {Error}", error);
+                    Log.Warning("gh api query failed (exit code {ExitCode}): {Error}", process.ExitCode, error);
+                    Log.Debug("Output: {Output}", output);
                     break;
                 }
 
-                // Check if the output contains a run created in the last 60 seconds
-                // The response format is JSON lines with id, name, created_at
+                Log.Debug("GitHub API response: {Output}", output);
+
+                // Parse the tab-separated output: id\tcreated_at
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var line in lines)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
-                    try
+                    var parts = line.Split('\t');
+                    if (parts.Length >= 2)
                     {
-                        // Parse the created_at timestamp to check if within last 60 seconds
-                        if (line.Contains("\"created_at\""))
+                        var runId = parts[0].Trim();
+                        var createdAtStr = parts[1].Trim();
+
+                        if (DateTimeOffset.TryParse(createdAtStr, out var createdAt))
                         {
-                            // Extract the created_at value
-                            var createdAtStart = line.IndexOf("\"created_at\": \"", StringComparison.OrdinalIgnoreCase) + 15;
-                            var createdAtEnd = line.IndexOf("\"", createdAtStart);
-                            if (createdAtStart > 14 && createdAtEnd > createdAtStart)
+                            var timeSinceDispatch = DateTime.UtcNow - createdAt.DateTime;
+                            Log.Debug("Found workflow run {RunId} created {Seconds}s ago: {CreatedAt}",
+                                runId, (int)timeSinceDispatch.TotalSeconds, createdAtStr);
+
+                            if (timeSinceDispatch.TotalSeconds <= 60)
                             {
-                                var createdAtStr = line.Substring(createdAtStart, createdAtEnd - createdAtStart);
-                                if (DateTimeOffset.TryParse(createdAtStr, out var createdAt))
-                                {
-                                    var timeSinceDispatch = DateTime.UtcNow - createdAt.DateTime;
-                                    if (timeSinceDispatch.TotalSeconds <= 60)
-                                    {
-                                        // Extract the run ID
-                                        var idStart = line.IndexOf("\"id\": ") + 6;
-                                        var idEnd = line.IndexOf(",", idStart);
-                                        if (idEnd == -1) idEnd = line.IndexOf("}", idStart);
-                                        if (idEnd > idStart)
-                                        {
-                                            var runId = line.Substring(idStart, idEnd - idStart).Trim();
-                                            Log.Information("✓ Dispatch confirmed: https://github.com/{Repository}/actions/runs/{RunId}",
-                                                repository, runId);
-                                            found = true;
-                                            break;
-                                        }
-                                    }
-                                }
+                                Log.Information("✓ Dispatch confirmed: https://github.com/{Repository}/actions/runs/{RunId}",
+                                    repository, runId);
+                                found = true;
+                                break;
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Debug("Error parsing workflow run line: {Line}, Error: {Error}", line, ex.Message);
                     }
                 }
 
