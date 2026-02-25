@@ -48,6 +48,10 @@ jobs:
             .nuke/temp
             ~/.nuget/packages
           key: ${{ runner.os }}-${{ hashFiles('**/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Extract version from context
         id: version
         run: |
@@ -88,6 +92,7 @@ jobs:
       - name: 'Run: Release'
         run: ./build.sh Release
         env:
+          Platform: all
           ReleaseVersion: ${{ steps.version.outputs.version }}
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DockerUsername: ${{ secrets.DOCKER_USERNAME }}

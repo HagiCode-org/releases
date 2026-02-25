@@ -106,6 +106,9 @@ partial class Build : Nuke.Common.NukeBuild
     [Parameter("Dry run mode (do not trigger actual releases)")]
     readonly bool DryRun = false;
 
+    [Parameter("Target platform for Docker build (linux-x64, linux-arm64, all) - Default is linux-x64")]
+    readonly string Platform = "linux-x64";
+
     // ==========================================================================
     // Dependencies
     // ==========================================================================

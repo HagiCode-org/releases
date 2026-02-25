@@ -34,9 +34,14 @@ jobs:
             .nuke/temp
             ~/.nuget/packages
           key: ${{ runner.os }}-${{ hashFiles('**/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: 'Run: DockerBuild'
         run: ./build.sh DockerBuild
         env:
+          Platform: all
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
       - name: 'Publish: download'
         uses: actions/upload-artifact@v4
