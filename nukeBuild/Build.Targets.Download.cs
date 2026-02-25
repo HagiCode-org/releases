@@ -87,8 +87,7 @@ partial class Build
                 var formattedVersions = FormatAvailableVersionsList(allVersions);
                 Log.Warning("{Versions}", formattedVersions);
                 Log.Warning("Falling back to BuildAllChannels mode...");
-                var channels = adapter.GetAllChannelsWithLatestVersions(index);
-                return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
+                return GetAllChannelsVersions(adapter, index);
             }
 
             // Determine channel
@@ -106,8 +105,7 @@ partial class Build
                     FullVersion, channel);
                 Log.Warning("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
                 Log.Warning("Falling back to BuildAllChannels mode...");
-                var channels = adapter.GetAllChannelsWithLatestVersions(index);
-                return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
+                return GetAllChannelsVersions(adapter, index);
             }
 
             return new List<(string, string)> { (channel, FullVersion) };
@@ -117,15 +115,22 @@ partial class Build
         if (BuildAllChannels)
         {
             Log.Information("BuildAllChannels enabled: downloading latest version for all channels");
-            var channels = adapter.GetAllChannelsWithLatestVersions(index);
-            return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
+            return GetAllChannelsVersions(adapter, index);
         }
 
         // Default: fall back to BuildAllChannels
         Log.Warning("No version specified and BuildAllChannels not set.");
         Log.Warning("Falling back to BuildAllChannels mode...");
-        var channels = adapter.GetAllChannelsWithLatestVersions(index);
-        return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
+        return GetAllChannelsVersions(adapter, index);
+    }
+
+    /// <summary>
+    /// Gets all channels' latest versions as a list of (channel, version) tuples
+    /// </summary>
+    List<(string channel, string version)> GetAllChannelsVersions(IAzureBlobAdapter adapter, NukeBuild.Adapters.PackageIndex index)
+    {
+        var channelsDict = adapter.GetAllChannelsWithLatestVersions(index);
+        return channelsDict.Select(kvp => (kvp.Key, kvp.Value)).ToList();
     }
 
     /// <summary>
