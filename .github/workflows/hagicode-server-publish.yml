@@ -49,32 +49,6 @@ jobs:
       is_explicit_dispatch: ${{ steps.version.outputs.is_explicit_dispatch }}
     steps:
       - uses: actions/checkout@v6
-      # Validate that all required environment variables are present before running any build operations
-      # This provides clear error messages early in the workflow if secrets are misconfigured
-      - name: Validate required environment variables
-        run: |
-          echo "Validating required environment variables..."
-          required_vars=(
-            "AZURE_BLOB_SAS_URL"
-            "DOCKER_USERNAME"
-            "DOCKER_PASSWORD"
-            "ALIYUN_ACR_USERNAME"
-            "ALIYUN_ACR_PASSWORD"
-            "AZURE_ACR_USERNAME"
-            "AZURE_ACR_PASSWORD"
-            "GITHUB_TOKEN"
-          )
-          missing=()
-          for var in "${required_vars[@]}"; do
-            if [[ -z "${!var}" ]]; then
-              missing+=("$var")
-            fi
-          done
-          if [[ ${#missing[@]} -gt 0 ]]; then
-            echo "::error::Missing required secrets: ${missing[*]}"
-            exit 1
-          fi
-          echo "✓ All required environment variables are present"
       - name: 'Cache: .nuke/temp, ~/.nuget/packages'
         uses: actions/cache@v4
         with:
@@ -179,21 +153,31 @@ jobs:
         with:
           name: docker-image-built.txt
           path: output/docker-image-built.txt
+      - name: Prepare Feishu Notification Message
+        id: notify-msg
+        if: always()
+        run: |
+          if [ "${{ steps.version.outputs.build_all_channels }}" = "true" ]; then
+            echo "version_info=**构建所有频道**" >> $GITHUB_OUTPUT
+            echo "release_link=• 所有频道已发布" >> $GITHUB_OUTPUT
+          else
+            echo "version_info=**版本号**: ${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "release_link=• GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
       - name: Send Feishu Notification
-        id: feishu-notify
         uses: HagiCode-org/haginotifier@v1
         if: always()
         with:
           msg_type: 'interactive'
           title: Hagicode Release ${{ job.status == 'success' && '发布成功 ✅' || '发布失败 ❌' }}
           message: |
-            ${{ steps.version.outputs.build_all_channels == 'true' && '**构建所有频道**' || '**版本号**: ' + steps.version.outputs.version }}
+            ${{ steps.notify-msg.outputs.version_info }}
             **状态**: ${{ job.status == 'success' && '发布成功' || '发布失败' }}
             **触发者**: ${{ github.actor }}
             **时间**: ${{ github.event.head_commit.timestamp }}
 
             **链接**:
-            ${{ steps.version.outputs.build_all_channels == 'true' && '• 所有频道已发布' || '• GitHub Release: ' + github.server_url + '/' + github.repository + '/releases/tag/' + steps.version.outputs.version }}
+            ${{ steps.notify-msg.outputs.release_link }}
             • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
