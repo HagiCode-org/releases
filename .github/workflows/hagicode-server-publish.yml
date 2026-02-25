@@ -46,8 +46,35 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       build_all_channels: ${{ steps.version.outputs.build_all_channels }}
+      is_explicit_dispatch: ${{ steps.version.outputs.is_explicit_dispatch }}
     steps:
       - uses: actions/checkout@v6
+      # Validate that all required environment variables are present before running any build operations
+      # This provides clear error messages early in the workflow if secrets are misconfigured
+      - name: Validate required environment variables
+        run: |
+          echo "Validating required environment variables..."
+          required_vars=(
+            "AZURE_BLOB_SAS_URL"
+            "DOCKER_USERNAME"
+            "DOCKER_PASSWORD"
+            "ALIYUN_ACR_USERNAME"
+            "ALIYUN_ACR_PASSWORD"
+            "AZURE_ACR_USERNAME"
+            "AZURE_ACR_PASSWORD"
+            "GITHUB_TOKEN"
+          )
+          missing=()
+          for var in "${required_vars[@]}"; do
+            if [[ -z "${!var}" ]]; then
+              missing+=("$var")
+            fi
+          done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+          echo "✓ All required environment variables are present"
       - name: 'Cache: .nuke/temp, ~/.nuget/packages'
         uses: actions/cache@v4
         with:
@@ -62,17 +89,24 @@ jobs:
       - name: Extract version and build mode from context
         id: version
         run: |
+          set -x
           BUILD_ALL_CHANNELS="false"
           VERSION=""
+          IS_EXPLICIT_DISPATCH="false"
+
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event action: ${{ github.event.action }}"
 
           # Determine version based on trigger type
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             # Check event type
             EVENT_TYPE="${{ github.event.action }}"
+            echo "Client payload version: ${{ github.event.client_payload.version }}"
             if [ "$EVENT_TYPE" = "build-all-channels" ]; then
               BUILD_ALL_CHANNELS="true"
             else
               VERSION="${{ github.event.client_payload.version }}"
+              IS_EXPLICIT_DISPATCH="true"
             fi
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # From manual workflow_dispatch input
@@ -87,12 +121,18 @@ jobs:
           fi
 
           # Normalize version - ensure it has 'v' prefix for consistency
+          ORIGINAL_VERSION="$VERSION"
           if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v$VERSION"
           fi
+          echo "Version normalization: '$ORIGINAL_VERSION' -> '$VERSION'"
+
+          echo "build_all_channels=$BUILD_ALL_CHANNELS"
+          echo "is_explicit_dispatch=$IS_EXPLICIT_DISPATCH"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_all_channels=$BUILD_ALL_CHANNELS" >> $GITHUB_OUTPUT
+          echo "is_explicit_dispatch=$IS_EXPLICIT_DISPATCH" >> $GITHUB_OUTPUT
           echo "Build all channels: $BUILD_ALL_CHANNELS"
           if [ -n "$VERSION" ]; then
             echo "Using version: $VERSION"
@@ -119,6 +159,7 @@ jobs:
           Platform: all
           ReleaseVersion: ${{ steps.version.outputs.version }}
           BuildAllChannels: ${{ steps.version.outputs.build_all_channels }}
+          IsExplicitDispatch: ${{ steps.version.outputs.is_explicit_dispatch }}
           PushToRegistry: true
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DockerUsername: ${{ secrets.DOCKER_USERNAME }}

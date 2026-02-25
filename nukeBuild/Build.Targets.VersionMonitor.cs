@@ -8,6 +8,12 @@ using System.Text.Json;
 
 /// <summary>
 /// Version Monitor target - monitors Azure Blob Storage for new versions and triggers GitHub releases
+///
+/// Dispatch Verification:
+/// - After triggering a repository_dispatch event, this target queries the GitHub Actions API
+/// - Confirms that the dispatch successfully created a workflow run
+/// - Provides a workflow run URL for tracking the release progress
+/// - This catches authentication/permission issues early and provides actionable feedback
 /// </summary>
 partial class Build
 {
@@ -222,11 +228,137 @@ partial class Build
             }
 
             Log.Information("Successfully triggered release workflow for version {Version}", version);
+
+            // Verify the dispatch created a workflow run
+            VerifyDispatchCreated(version, repository);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Failed to trigger release for version {Version}", version);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a repository_dispatch event successfully created a workflow run.
+    /// Queries the GitHub Actions API to find a matching run within the last 60 seconds.
+    /// </summary>
+    /// <param name="version">The version that was dispatched</param>
+    /// <param name="repository">The GitHub repository (owner/repo)</param>
+    void VerifyDispatchCreated(string version, string repository)
+    {
+        Log.Debug("Verifying dispatch created workflow run for version {Version}...", version);
+
+        var timeout = TimeSpan.FromSeconds(10);
+        var startTime = DateTime.UtcNow;
+        var found = false;
+
+        while (DateTime.UtcNow - startTime < timeout && !found)
+        {
+            try
+            {
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = "gh",
+                    ArgumentList =
+                    {
+                        "api",
+                        $"/repos/{repository}/actions/runs",
+                        "--jq", ".workflow_runs[] | select(.event == \"repository_dispatch\") | {id, name, created_at, event: .event}"
+                    },
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    Environment =
+                    {
+                        ["GH_TOKEN"] = EffectiveGitHubToken
+                    }
+                };
+
+                using var process = Process.Start(processInfo);
+                if (process == null)
+                {
+                    Log.Warning("Failed to start gh process for dispatch verification");
+                    break;
+                }
+
+                var output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit();
+
+                if (process.ExitCode != 0)
+                {
+                    var error = process.StandardError.ReadToEnd();
+                    Log.Warning("gh api query failed: {Error}", error);
+                    break;
+                }
+
+                // Check if the output contains a run created in the last 60 seconds
+                // The response format is JSON lines with id, name, created_at
+                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    try
+                    {
+                        // Parse the created_at timestamp to check if within last 60 seconds
+                        if (line.Contains("\"created_at\""))
+                        {
+                            // Extract the created_at value
+                            var createdAtStart = line.IndexOf("\"created_at\": \"", StringComparison.OrdinalIgnoreCase) + 15;
+                            var createdAtEnd = line.IndexOf("\"", createdAtStart);
+                            if (createdAtStart > 14 && createdAtEnd > createdAtStart)
+                            {
+                                var createdAtStr = line.Substring(createdAtStart, createdAtEnd - createdAtStart);
+                                if (DateTimeOffset.TryParse(createdAtStr, out var createdAt))
+                                {
+                                    var timeSinceDispatch = DateTime.UtcNow - createdAt.DateTime;
+                                    if (timeSinceDispatch.TotalSeconds <= 60)
+                                    {
+                                        // Extract the run ID
+                                        var idStart = line.IndexOf("\"id\": ") + 6;
+                                        var idEnd = line.IndexOf(",", idStart);
+                                        if (idEnd == -1) idEnd = line.IndexOf("}", idStart);
+                                        if (idEnd > idStart)
+                                        {
+                                            var runId = line.Substring(idStart, idEnd - idStart).Trim();
+                                            Log.Information("✓ Dispatch confirmed: https://github.com/{Repository}/actions/runs/{RunId}",
+                                                repository, runId);
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug("Error parsing workflow run line: {Line}, Error: {Error}", line, ex.Message);
+                    }
+                }
+
+                if (found)
+                {
+                    break;
+                }
+
+                // Wait 2 seconds before retrying
+                System.Threading.Thread.Sleep(2000);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Error during dispatch verification retry");
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            Log.Error("Dispatch may have failed - no workflow run found for version {Version} within {Timeout} seconds",
+                version, timeout.TotalSeconds);
+            throw new Exception($"Dispatch verification failed for version {version}");
         }
     }
 }

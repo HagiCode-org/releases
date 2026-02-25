@@ -115,6 +115,12 @@ Required for releases:
 - `GITHUB_TOKEN` - GitHub API token (auto in CI)
 - `FEISHU_WEBHOOK_URL` - Optional notifications
 
+Optional parameters:
+- `IsExplicitDispatch` - When true, skips "latest version" validation (used by repository_dispatch events)
+- `ReleaseVersion` - Specific version to release (e.g., v1.0.0)
+- `BuildAllChannels` - When true, downloads latest version for all channels
+- `DryRun` - When true, simulates actions without making changes
+
 ### Registry Configuration
 - **Docker Hub**: `docker.io/newbe36524/hagicode`
 - **Azure ACR**: `hagicode.azurecr.io/hagicode`

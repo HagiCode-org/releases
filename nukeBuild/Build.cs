@@ -63,6 +63,9 @@ partial class Build : Nuke.Common.NukeBuild
     [Parameter("Release version from git tag (e.g., v1.0.0)")]
     readonly string ReleaseVersion = "0.1.0-beta.1";
 
+    [Parameter("Indicates if the release was triggered via explicit repository_dispatch (skips latest version validation)")]
+    readonly bool IsExplicitDispatch = false;
+
     [Parameter("Docker Hub username")]
     [Secret]
     readonly string DockerUsername = string.Empty;

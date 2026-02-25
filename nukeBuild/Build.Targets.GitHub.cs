@@ -7,6 +7,10 @@ using System.Linq;
 
 /// <summary>
 /// GitHub Release target - uploads packages to pre-existing GitHub releases
+///
+/// Version Normalization:
+/// - GitHub Release operations preserve the 'v' prefix (e.g., "v0.1.0")
+/// - This is handled via GitHubReleaseVersion property which ensures 'v' prefix
 /// </summary>
 partial class Build
 {

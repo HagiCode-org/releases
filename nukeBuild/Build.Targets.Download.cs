@@ -6,6 +6,12 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Download target - downloads all platform packages from Azure Blob Storage
+///
+/// Version Normalization:
+/// - Azure download operations strip the 'v' prefix (e.g., "v0.1.0" -> "0.1.0")
+/// - This is handled via ReleaseVersion.TrimStart('v') in DetermineVersionsToDownload()
+/// - When IsExplicitDispatch is true, the "latest version" validation is skipped,
+///   allowing releases of specific versions that may not be the latest in their channel
 /// </summary>
 partial class Build
 {
@@ -76,6 +82,9 @@ partial class Build
             throw new Exception("Failed to download index.json from Azure Blob Storage");
         }
 
+        // Log the dispatch mode and version for debugging
+        Log.Debug("IsExplicitDispatch: {IsExplicitDispatch}, ReleaseVersion: {ReleaseVersion}", IsExplicitDispatch, ReleaseVersion);
+
         // If a specific version is provided, download only that version
         if (!string.IsNullOrEmpty(ReleaseVersion))
         {
@@ -90,7 +99,8 @@ partial class Build
                 Log.Warning("Available versions ({Count} total):", allVersions.Count);
                 var formattedVersions = FormatAvailableVersionsList(allVersions);
                 Log.Warning("{Versions}", formattedVersions);
-                Log.Warning("Falling back to BuildAllChannels mode...");
+                var reason = IsExplicitDispatch ? "explicit dispatch" : "version not found";
+                Log.Warning("Falling back to BuildAllChannels mode ({Reason})...", reason);
                 return GetAllChannelsVersions(adapter, index);
             }
 
@@ -101,15 +111,26 @@ partial class Build
                 channel = "stable";
             }
 
-            // Validate it's the latest for the channel
-            var latestVersion = adapter.GetLatestVersionForChannel(index, channel);
-            if (latestVersion != null && FullVersion != latestVersion)
+            // Skip "latest version" validation for explicit dispatches
+            // When IsExplicitDispatch is true, the user explicitly requested THIS version
+            // and we should honor it without checking if it's the latest in the channel
+            if (!IsExplicitDispatch)
             {
-                Log.Warning("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
-                    FullVersion, channel);
-                Log.Warning("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
-                Log.Warning("Falling back to BuildAllChannels mode...");
-                return GetAllChannelsVersions(adapter, index);
+                Log.Information("Latest version validation: Checking if version is latest in channel");
+                // Validate it's the latest for the channel
+                var latestVersion = adapter.GetLatestVersionForChannel(index, channel);
+                if (latestVersion != null && FullVersion != latestVersion)
+                {
+                    Log.Warning("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
+                        FullVersion, channel);
+                    Log.Warning("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
+                    Log.Warning("Falling back to BuildAllChannels mode...");
+                    return GetAllChannelsVersions(adapter, index);
+                }
+            }
+            else
+            {
+                Log.Information("Latest version validation: Explicit dispatch set, skipping validation");
             }
 
             return new List<(string, string)> { (channel, FullVersion) };

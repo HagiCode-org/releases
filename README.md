@@ -338,6 +338,14 @@ This project uses **Nuke** for build automation. Nuke provides:
 - Check that the repository_dispatch event was created successfully
 - Verify the event type "version-monitor-release" is correctly configured
 - Check GitHub Actions logs for the monitor workflow
+- Look for dispatch confirmation messages with workflow run URLs
+- If dispatch verification fails, check GitHub Token has `actions: read` permission
+
+**Dispatch verification fails**:
+- Verify the workflow run was created by checking the Actions tab
+- Check that the event was sent within the last 60 seconds
+- Ensure the GitHub Token has sufficient permissions
+- Manual trigger test: Use workflow dispatch to verify the release pipeline works
 
 ### Download Fails
 
