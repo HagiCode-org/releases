@@ -192,6 +192,30 @@ nuke Release --Version v1.0.0
 | `GITHUB_TOKEN` | GitHub API token | Auto in CI |
 | `DOCKER_REGISTRY` | Docker registry (default: docker.io/newbe36524) | Optional |
 | `DOCKER_IMAGE_NAME` | Docker image name (default: hagicode) | Optional |
+| `DOCKER_VERIFY_MAX_RETRIES` | Max retry attempts for base image verification (default: 5, range: 1-20) | Optional |
+
+### Docker Image Availability Verification
+
+For multi-architecture builds, the system automatically:
+
+1. **Builds and pushes the base image** to the registry immediately after completion
+2. **Verifies base image availability** before starting the application build
+3. **Implements retry logic** with exponential backoff to handle registry propagation delays
+
+**Default retry behavior:**
+- Initial delay: 2 seconds
+- Max retries: 5 attempts
+- Backoff: Exponential (2s → 4s → 8s → 16s → 32s)
+- Total max wait: ~62 seconds
+
+**Configuration:**
+Set the `DOCKER_VERIFY_MAX_RETRIES` environment variable to customize retry behavior (valid range: 1-20).
+
+**Example:**
+```bash
+export DOCKER_VERIFY_MAX_RETRIES=10
+nuke DockerBuild --Platform=all
+```
 
 ### Azure Blob Storage Setup
 

@@ -22,6 +22,7 @@ namespace NukeBuild.Adapters
         string? FindVersion(PackageIndex? index, string version, string platform);
         List<string> GetAllPackagePaths(PackageIndex? index, string version);
         List<string> GetAllVersions(PackageIndex? index);
+        string? GetLatestVersionForChannel(PackageIndex? index, string channel);
     }
 
     public class AzureBlobDownloadOptions
@@ -284,9 +285,12 @@ namespace NukeBuild.Adapters
 
             if (versionEntry == null)
             {
-                Log.Warning("Version {Version} not found in index. Available versions: {Versions}",
+                var availableVersions = index.Versions.Select(v => v.Version).ToList();
+                var formattedVersions = FormatAvailableVersionsList(availableVersions);
+                Log.Warning("Version {Version} not found in index. Available versions ({Count} total):\n{Versions}",
                     normalizedVersion,
-                    string.Join(", ", index.Versions.Select(v => v.Version)));
+                    availableVersions.Count,
+                    formattedVersions);
                 return paths;
             }
 
@@ -422,6 +426,110 @@ namespace NukeBuild.Adapters
             }
 
             throw new InvalidOperationException($"Failed to download after {MaxRetries} attempts", lastException);
+        }
+
+        /// <summary>
+        /// Gets the latest version for a specific channel from the package index.
+        /// </summary>
+        /// <param name="index">The package index containing all versions.</param>
+        /// <param name="channel">The channel to filter by (e.g., "beta", "stable").</param>
+        /// <returns>The latest version string for the specified channel, or null if not found.</returns>
+        public string? GetLatestVersionForChannel(PackageIndex? index, string channel)
+        {
+            if (index == null || index.Versions.Count == 0)
+            {
+                Log.Warning("Index is empty or null, cannot get latest version for channel {Channel}", channel);
+                return null;
+            }
+
+            // Filter versions by channel (case-insensitive)
+            var channelVersions = index.Versions
+                .Where(v => v.Version.Contains(channel, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (channelVersions.Count == 0)
+            {
+                Log.Warning("No versions found for channel {Channel}", channel);
+                return null;
+            }
+
+            // Sort by semantic version to get the latest
+            var latestVersion = channelVersions
+                .OrderByDescending(v => v.Version, new SemanticVersionComparer())
+                .FirstOrDefault();
+
+            if (latestVersion != null)
+            {
+                Log.Information("Latest version for channel {Channel} is {Version}", channel, latestVersion.Version);
+                return latestVersion.Version;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Formats the available versions list into a readable multi-line format.
+        /// </summary>
+        private static string FormatAvailableVersionsList(List<string> versions)
+        {
+            if (versions.Count == 0)
+            {
+                return "  (none)";
+            }
+
+            // Format with 8 versions per line for readability
+            var lines = new List<string>();
+            for (int i = 0; i < versions.Count; i += 8)
+            {
+                var batch = versions.Skip(i).Take(8);
+                lines.Add("  " + string.Join(", ", batch));
+            }
+            return string.Join(",\n", lines);
+        }
+
+        /// <summary>
+        /// Compares semantic version strings for sorting.
+        /// </summary>
+        private class SemanticVersionComparer : IComparer<string>
+        {
+            public int Compare(string? x, string? y)
+            {
+                if (string.IsNullOrEmpty(x)) return -1;
+                if (string.IsNullOrEmpty(y)) return 1;
+
+                // Normalize versions
+                var xVersion = x.TrimStart('v').ToLowerInvariant();
+                var yVersion = y.TrimStart('v').ToLowerInvariant();
+
+                // Split version parts
+                var xParts = xVersion.Split(['-', '.']);
+                var yParts = yVersion.Split(['-', '.']);
+
+                // Compare each part
+                for (int i = 0; i < Math.Max(xParts.Length, yParts.Length); i++)
+                {
+                    if (i >= xParts.Length) return -1;
+                    if (i >= yParts.Length) return 1;
+
+                    var xPart = xParts[i];
+                    var yPart = yParts[i];
+
+                    // Try numeric comparison
+                    if (int.TryParse(xPart, out var xNum) && int.TryParse(yPart, out var yNum))
+                    {
+                        var numCompare = xNum.CompareTo(yNum);
+                        if (numCompare != 0) return numCompare;
+                    }
+                    else
+                    {
+                        // String comparison for pre-release tags (beta, rc, etc.)
+                        var stringCompare = string.CompareOrdinal(xPart, yPart);
+                        if (stringCompare != 0) return stringCompare;
+                    }
+                }
+
+                return 0;
+            }
         }
     }
 }

@@ -10,6 +10,12 @@ using System.Diagnostics;
 /// <summary>
 /// Docker targets - builds, logs in, and pushes Docker images
 /// Supports multi-architecture builds (linux/amd64, linux/arm64)
+///
+/// For multi-architecture builds:
+/// - Base image is pushed immediately to registry using type=registry output
+/// - Base image availability is verified before application build starts
+/// - Retry logic with exponential backoff handles registry propagation delays
+/// - Configure retry behavior via DOCKER_VERIFY_MAX_RETRIES environment variable (default: 5)
 /// </summary>
 partial class Build
 {
@@ -78,6 +84,11 @@ partial class Build
             Log.Information("All Docker registry pushes completed");
         });
 
+    /// <summary>
+/// Main Docker build execution
+/// Builds both base and application Docker images
+/// For multi-arch builds, verifies base image availability before building application images
+/// </summary>
     void DockerBuildExecute()
     {
         Log.Information("Building Docker images (base + application)");
@@ -99,6 +110,12 @@ partial class Build
 
         // Step 2: Build base image(s)
         BuildDockerBaseImage();
+
+        // Step 2.5: Verify base image availability in registry (for multi-arch builds)
+        if (IsMultiArchBuild)
+        {
+            VerifyBaseImageAvailable(BaseDockerTag);
+        }
 
         // Step 3: Generate application Dockerfile from template
         var dockerfileContent = GenerateAppDockerfile();
@@ -179,12 +196,14 @@ partial class Build
 
     /// <summary>
     /// Build multi-architecture base image using buildx
+    /// Image is immediately pushed to registry to ensure availability for application builds
     /// </summary>
     void BuildMultiArchBaseImage()
     {
         Log.Information("Building multi-architecture base image: {BaseTag}", BaseDockerTag);
         Log.Information("  Platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
         Log.Information("  Context: {Context}", DockerDeploymentDirectory);
+        Log.Information("  Output type: registry (push immediately to registry)");
 
         // Create multi-arch builder if it doesn't exist
         EnsureBuildxBuilder("hagicode-multiarch");
@@ -202,7 +221,7 @@ partial class Build
                             $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
                             $"--tag \"{buildxBaseTag}\" " +
                             $"--tag \"{BaseDockerTag}\" " +
-                            $"--output type=image,push=false " +
+                            $"--output type=registry " +
                             $"--builder hagicode-multiarch " +
                             $"\"{DockerDeploymentDirectory}\"",
                 RedirectStandardOutput = true,
@@ -211,6 +230,7 @@ partial class Build
             }
         };
 
+        Log.Information("Starting buildx build process...");
         process.Start();
         var output = process.StandardOutput.ReadToEnd();
         var error = process.StandardError.ReadToEnd();
@@ -218,11 +238,22 @@ partial class Build
 
         if (process.ExitCode != 0)
         {
-            Log.Error("Multi-arch base image build failed: {Error}", error);
+            Log.Error("Multi-arch base image build failed");
+            Log.Error("Exit code: {ExitCode}", process.ExitCode);
+            Log.Error("Error: {Error}", error);
+
+            // Check for authentication errors
+            if (error.Contains("unauthorized") || error.Contains("denied") || error.Contains("401"))
+            {
+                Log.Error("This appears to be an authentication error. Please check your registry credentials.");
+                throw new Exception($"Failed to build multi-architecture base image (authentication error): {error}");
+            }
+
             throw new Exception($"Failed to build multi-architecture base image: {error}");
         }
 
-        Log.Information("✓ Multi-architecture base image built successfully: {BaseTag}", BaseDockerTag);
+        Log.Information("✓ Multi-architecture base image built and pushed to registry: {BaseTag}", BaseDockerTag);
+        Log.Information("✓ Additional tag: {BuildxBaseTag}", buildxBaseTag);
         Log.Debug("Build output: {Output}", output);
     }
 
@@ -523,6 +554,85 @@ partial class Build
 
             Log.Information("✓ Pushed multi-arch manifest: {Tag}", tag);
         }
+    }
+
+    /// <summary>
+    /// Check if a Docker image exists in the registry
+    /// Uses docker manifest inspect to verify availability
+    /// </summary>
+    bool IsImageInRegistry(string imageTag)
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"manifest inspect \"{imageTag}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        process.Start();
+        process.WaitForExit();
+
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+
+        Log.Debug("Manifest inspect result for {Image}: ExitCode={ExitCode}", imageTag, process.ExitCode);
+
+        return process.ExitCode == 0;
+    }
+
+    /// <summary>
+    /// Verify that a base image is available in the registry before proceeding with dependent builds
+    /// Implements retry logic with exponential backoff to handle registry propagation delays
+    /// </summary>
+    void VerifyBaseImageAvailable(string imageTag, int maxRetries = 5)
+    {
+        // Allow configuration via environment variable
+        var envRetries = Environment.GetEnvironmentVariable("DOCKER_VERIFY_MAX_RETRIES");
+        if (!string.IsNullOrEmpty(envRetries) && int.TryParse(envRetries, out var parsedRetries))
+        {
+            maxRetries = Math.Max(1, Math.Min(20, parsedRetries));
+        }
+
+        Log.Information("Verifying base image availability: {Image}", imageTag);
+        Log.Information("  Max retries: {MaxRetries}", maxRetries);
+
+        var delay = TimeSpan.FromSeconds(2);
+        var totalWaitTime = TimeSpan.Zero;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            if (IsImageInRegistry(imageTag))
+            {
+                Log.Information("✓ Base image verified in registry");
+                if (attempt > 1)
+                {
+                    Log.Information("  Waited {TotalWaitTime} before verification succeeded", totalWaitTime);
+                }
+                return;
+            }
+
+            // Don't sleep on the last attempt
+            if (attempt < maxRetries)
+            {
+                Log.Warning("Base image not yet available, retrying in {Delay}s (attempt {Attempt}/{Max})",
+                    delay.TotalSeconds, attempt, maxRetries);
+
+                Thread.Sleep(delay);
+                totalWaitTime += delay;
+                delay = TimeSpan.FromSeconds(delay.TotalSeconds * 2); // Exponential backoff
+            }
+        }
+
+        // Verification failed after all retries
+        Log.Error("Base image {Image} not available in registry after {MaxRetries} attempts", imageTag, maxRetries);
+        Log.Error("  Total wait time: {TotalWaitTime}", totalWaitTime);
+        throw new Exception($"Base image {imageTag} not available in registry after {maxRetries} attempts (total wait: {totalWaitTime.TotalSeconds}s)");
     }
 
     List<string> GetAppDockerTags()
