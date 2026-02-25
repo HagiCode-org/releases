@@ -17,6 +17,17 @@ partial class Build
     GitHubActions GitHubActions => GitHubActions.Instance;
 
     // ==========================================================================
+    // Parameters
+    // ==========================================================================
+
+    /// <summary>
+    /// Gets or sets whether to build all channels' latest versions
+    /// When true, downloads and builds the latest version for each channel (beta, stable, etc.)
+    /// </summary>
+    [Parameter("Build all channels' latest versions instead of a specific version")]
+    bool BuildAllChannels { get; set; }
+
+    // ==========================================================================
     // Shared Helper Properties
     // ==========================================================================
 

@@ -21,13 +21,19 @@ on:
     tags:
       - 'v*.*.*'
   repository_dispatch:
-    types: [version-monitor-release]
+    types: [version-monitor-release, build-all-channels]
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to release (e.g., 1.0.0 or v1.0.0)'
-        required: true
+        required: false
         type: string
+        default: ''
+      build_all_channels:
+        description: 'Build latest version for all channels'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build_all_channels: ${{ steps.version.outputs.build_all_channels }}
     steps:
       - uses: actions/checkout@v6
       - name: 'Cache: .nuke/temp, ~/.nuget/packages'
@@ -52,29 +59,46 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Extract version from context
+      - name: Extract version and build mode from context
         id: version
         run: |
+          BUILD_ALL_CHANNELS="false"
+          VERSION=""
+
           # Determine version based on trigger type
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            # From repository_dispatch event
-            VERSION="${{ github.event.client_payload.version }}"
+            # Check event type
+            EVENT_TYPE="${{ github.event.action }}"
+            if [ "$EVENT_TYPE" = "build-all-channels" ]; then
+              BUILD_ALL_CHANNELS="true"
+            else
+              VERSION="${{ github.event.client_payload.version }}"
+            fi
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # From manual workflow_dispatch input
-            VERSION="${{ github.event.inputs.version }}"
+            if [ "${{ github.event.inputs.build_all_channels }}" = "true" ]; then
+              BUILD_ALL_CHANNELS="true"
+            else
+              VERSION="${{ github.event.inputs.version }}"
+            fi
           else
             # From git tag (push event)
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
 
           # Normalize version - ensure it has 'v' prefix for consistency
-          if [[ ! "$VERSION" =~ ^v ]]; then
+          if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v$VERSION"
           fi
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Using version: $VERSION"
-      - name: Create GitHub Release (if not exists)
+          echo "build_all_channels=$BUILD_ALL_CHANNELS" >> $GITHUB_OUTPUT
+          echo "Build all channels: $BUILD_ALL_CHANNELS"
+          if [ -n "$VERSION" ]; then
+            echo "Using version: $VERSION"
+          fi
+      - name: Create GitHub Release (if not exists and not building all channels)
+        if: steps.version.outputs.build_all_channels != 'true' && steps.version.outputs.version != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -94,6 +118,7 @@ jobs:
         env:
           Platform: all
           ReleaseVersion: ${{ steps.version.outputs.version }}
+          BuildAllChannels: ${{ steps.version.outputs.build_all_channels }}
           AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DockerUsername: ${{ secrets.DOCKER_USERNAME }}
           DockerPassword: ${{ secrets.DOCKER_PASSWORD }}
@@ -120,13 +145,13 @@ jobs:
           msg_type: 'interactive'
           title: Hagicode Release ${{ job.status == 'success' && '发布成功 ✅' || '发布失败 ❌' }}
           message: |
-            **版本号**: ${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.build_all_channels == 'true' && '**构建所有频道**' || '**版本号**: ' + steps.version.outputs.version }}
             **状态**: ${{ job.status == 'success' && '发布成功' || '发布失败' }}
             **触发者**: ${{ github.actor }}
             **时间**: ${{ github.event.head_commit.timestamp }}
 
             **链接**:
-            • GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.build_all_channels == 'true' && '• 所有频道已发布' || '• GitHub Release: ' + github.server_url + '/' + github.repository + '/releases/tag/' + steps.version.outputs.version }}
             • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

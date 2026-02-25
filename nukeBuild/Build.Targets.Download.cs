@@ -2,6 +2,7 @@ using Nuke.Common;
 using NukeBuild.Adapters;
 using Serilog;
 using System.Linq;
+using System.Collections.Generic;
 
 /// <summary>
 /// Download target - downloads all platform packages from Azure Blob Storage
@@ -11,17 +12,59 @@ partial class Build
     Target Download => _ => _
         .DependsOn(Clean)
         .Requires(() => AzureBlobSasUrl)
-        .Requires(() => ReleaseVersion)
-        .Produces(DownloadDirectory / "*.zip")
         .Executes(DownloadExecute);
 
     void DownloadExecute()
     {
-        Log.Information("Downloading ALL packages version {Version} from Azure Blob Storage", ReleaseVersion);
+        // Determine which versions to download
+        var versionsToDownload = DetermineVersionsToDownload();
 
+        if (versionsToDownload.Count == 0)
+        {
+            Log.Error("No versions to download");
+            throw new Exception("No versions to download");
+        }
+
+        // Download each version
         var adapter = new AzureBlobAdapter();
+        var allResults = new List<string>();
 
-        // Step 1: Download index.json
+        foreach (var (channel, version) in versionsToDownload)
+        {
+            Log.Information("========================================");
+            Log.Information("Downloading {Channel} channel: {Version}", channel, version);
+            Log.Information("========================================");
+
+            try
+            {
+                var result = DownloadVersion(adapter, version);
+                allResults.Add($"✓ {channel}: {version}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to download {Channel} channel version {Version}", channel, version);
+                allResults.Add($"✗ {channel}: {version} - {ex.Message}");
+                throw;
+            }
+        }
+
+        // Summary
+        Log.Information("========================================");
+        Log.Information("Download Summary:");
+        Log.Information("========================================");
+        foreach (var result in allResults)
+        {
+            Log.Information("{Result}", result);
+        }
+    }
+
+    /// <summary>
+    /// Determines which versions to download based on command-line parameters
+    /// </summary>
+    /// <returns>A list of (channel, version) tuples to download</returns>
+    List<(string channel, string version)> DetermineVersionsToDownload()
+    {
+        var adapter = new AzureBlobAdapter();
         var index = adapter.DownloadIndexJson(AzureBlobSasUrl);
         if (index == null)
         {
@@ -29,64 +72,72 @@ partial class Build
             throw new Exception("Failed to download index.json from Azure Blob Storage");
         }
 
-        // Step 2: Determine channel from version
-        var channel = ExtractChannelFromVersion(FullVersion);
-        Log.Information("Detected channel: {Channel} from version {Version}", channel, FullVersion);
-
-        // Step 3: Validate that the requested version is the latest for the channel
-        if (!string.IsNullOrEmpty(channel))
+        // If a specific version is provided, download only that version
+        if (!string.IsNullOrEmpty(ReleaseVersion))
         {
+            Log.Information("Downloading specific version: {Version}", ReleaseVersion);
+            var normalizedVersion = ReleaseVersion.TrimStart('v');
+
+            // Validate version exists
+            var allVersions = adapter.GetAllVersions(index);
+            if (!allVersions.Contains(normalizedVersion))
+            {
+                Log.Error("Version {Version} not found in Azure Blob Storage index", ReleaseVersion);
+                Log.Error("Available versions ({Count} total):", allVersions.Count);
+                var formattedVersions = FormatAvailableVersionsList(allVersions);
+                Log.Error("{Versions}", formattedVersions);
+                throw new Exception($"Version {ReleaseVersion} not found in Azure Blob Storage index");
+            }
+
+            // Determine channel
+            var channel = ExtractChannelFromVersion(FullVersion);
+            if (string.IsNullOrEmpty(channel))
+            {
+                channel = "stable";
+            }
+
+            // Validate it's the latest for the channel
             var latestVersion = adapter.GetLatestVersionForChannel(index, channel);
-            if (latestVersion != null)
+            if (latestVersion != null && FullVersion != latestVersion)
             {
-                if (FullVersion != latestVersion)
-                {
-                    // Requested version is not the channel latest
-                    Log.Error("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
-                        FullVersion, channel);
-                    Log.Error("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
-                    Log.Error("Hint: The 'release main push' workflow only processes the latest version of each channel.");
-                    Log.Error("Please use the latest version or update the channel configuration.");
-
-                    var errorMessage = FormatNotLatestVersionError(FullVersion, channel, latestVersion);
-                    throw new Exception(errorMessage);
-                }
-
-                Log.Information("Version {Version} is confirmed as the latest in the '{Channel}' channel",
+                Log.Error("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
                     FullVersion, channel);
+                Log.Error("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
+                Log.Error("Hint: Use --BuildAllChannels to build all channels' latest versions,");
+                Log.Error("or use the latest version for this channel.");
+                throw new Exception($"Version {FullVersion} is not the latest in channel {Channel}");
             }
-            else
-            {
-                Log.Warning("Could not determine latest version for channel '{Channel}', skipping channel validation", channel);
-            }
+
+            return new List<(string, string)> { (channel, FullVersion) };
         }
 
-        // Step 4: Validate that the requested version exists in the index
-        var allVersions = adapter.GetAllVersions(index);
-        var normalizedVersion = FullVersion.TrimStart('v');
-
-        if (!allVersions.Contains(normalizedVersion))
+        // If BuildAllChannels is set, download all channels' latest versions
+        if (BuildAllChannels)
         {
-            Log.Error("Version {Version} not found in Azure Blob Storage index", FullVersion);
-            Log.Error("Available versions ({Count} total):", allVersions.Count);
-
-            var formattedVersions = FormatAvailableVersionsList(allVersions);
-            Log.Error("{Versions}", formattedVersions);
-
-            Log.Error("Hint: The requested version may have been removed from storage.");
-            Log.Error("Use the latest available version or verify the version number.");
-
-            var errorMessage = FormatVersionNotFoundError(FullVersion, allVersions);
-            throw new Exception(errorMessage);
+            Log.Information("BuildAllChannels enabled: downloading latest version for all channels");
+            var channels = adapter.GetAllChannelsWithLatestVersions(index);
+            return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
         }
 
-        Log.Information("Version {Version} found in index, proceeding with download", FullVersion);
+        // Default: ask the user what they want to do
+        Log.Warning("No version specified and BuildAllChannels not set.");
+        Log.Warning("Available options:");
+        Log.Warning("  1. Specify a version: --Version <version>");
+        Log.Warning("  2. Build all channels' latest: --BuildAllChannels");
+        throw new Exception("Please specify a version or use --BuildAllChannels flag");
+    }
 
-        // Step 5: Proceed with download
+    /// <summary>
+    /// Downloads a specific version from Azure Blob Storage
+    /// </summary>
+    AzureBlobDownloadAllResult DownloadVersion(IAzureBlobAdapter adapter, string version)
+    {
+        Log.Information("Downloading ALL packages version {Version} from Azure Blob Storage", version);
+
         var options = new AzureBlobDownloadAllOptions
         {
             SasUrl = AzureBlobSasUrl,
-            Version = FullVersion,
+            Version = version,
             OutputDirectory = DownloadDirectory
         };
 
@@ -100,6 +151,8 @@ partial class Build
 
         Log.Information("Download completed: {Count} packages, {Bytes:N0} total bytes",
             result.PackagePaths.Count, result.TotalDownloadedBytes);
+
+        return result;
     }
 
     /// <summary>
@@ -136,34 +189,6 @@ partial class Build
         }
 
         return string.Empty;
-    }
-
-    /// <summary>
-    /// Formats an error message when the requested version is not the channel latest.
-    /// </summary>
-    string FormatNotLatestVersionError(string requestedVersion, string channel, string latestVersion)
-    {
-        return $"Error: Requested version {requestedVersion} is not the latest version in the '{channel}' channel.\n" +
-               $"\n" +
-               $"Latest version in '{channel}' channel: {latestVersion}\n" +
-               $"\n" +
-               $"Hint: The 'release main push' workflow only processes the latest version of each channel.\n" +
-               $"Please use the latest version or update the channel configuration.";
-    }
-
-    /// <summary>
-    /// Formats an error message when the requested version is not found.
-    /// </summary>
-    string FormatVersionNotFoundError(string requestedVersion, System.Collections.Generic.List<string> availableVersions)
-    {
-        var formattedVersions = FormatAvailableVersionsList(availableVersions);
-        return $"Error: Version {requestedVersion} not found in Azure Blob Storage index.\n" +
-               $"\n" +
-               $"Available versions ({availableVersions.Count} total):\n" +
-               $"{formattedVersions}\n" +
-               $"\n" +
-               $"Hint: The requested version may have been removed from storage.\n" +
-               $"Use the latest available version or verify the version number.";
     }
 
     /// <summary>

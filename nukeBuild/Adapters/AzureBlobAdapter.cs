@@ -23,6 +23,7 @@ namespace NukeBuild.Adapters
         List<string> GetAllPackagePaths(PackageIndex? index, string version);
         List<string> GetAllVersions(PackageIndex? index);
         string? GetLatestVersionForChannel(PackageIndex? index, string channel);
+        Dictionary<string, string> GetAllChannelsWithLatestVersions(PackageIndex? index);
     }
 
     public class AzureBlobDownloadOptions
@@ -429,11 +430,11 @@ namespace NukeBuild.Adapters
         }
 
         /// <summary>
-        /// Gets the latest version for a specific channel from the package index.
-        /// </summary>
-        /// <param name="index">The package index containing all versions.</param>
-        /// <param name="channel">The channel to filter by (e.g., "beta", "stable").</param>
-        /// <returns>The latest version string for the specified channel, or null if not found.</returns>
+/// Gets the latest version for a specific channel from the package index.
+/// </summary>
+/// <param name="index">The package index containing all versions.</param>
+/// <param name="channel">The channel to filter by (e.g., "beta", "stable").</param>
+/// <returns>The latest version string for the specified channel, or null if not found.</returns>
         public string? GetLatestVersionForChannel(PackageIndex? index, string channel)
         {
             if (index == null || index.Versions.Count == 0)
@@ -465,6 +466,95 @@ namespace NukeBuild.Adapters
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Gets all channels and their latest versions from the package index.
+        /// </summary>
+        /// <param name="index">The package index containing all versions.</param>
+        /// <returns>A dictionary mapping channel names to their latest version strings.</returns>
+        public Dictionary<string, string> GetAllChannelsWithLatestVersions(PackageIndex? index)
+        {
+            var result = new Dictionary<string, string>();
+
+            if (index == null || index.Versions.Count == 0)
+            {
+                Log.Warning("Index is empty or null, cannot get channels and latest versions");
+                return result;
+            }
+
+            // Identify all unique channels
+            var channels = new HashSet<string>();
+            foreach (var version in index.Versions)
+            {
+                var channel = ExtractChannelFromVersion(version.Version);
+                if (!string.IsNullOrEmpty(channel))
+                {
+                    channels.Add(channel);
+                }
+            }
+
+            // If no channels found, treat all versions as "stable" channel
+            if (channels.Count == 0)
+            {
+                Log.Warning("No channels identified in versions, treating all versions as 'stable'");
+                channels.Add("stable");
+            }
+
+            // Get latest version for each channel
+            foreach (var channel in channels)
+            {
+                var latest = GetLatestVersionForChannel(index, channel);
+                if (!string.IsNullOrEmpty(latest))
+                {
+                    result[channel] = latest;
+                }
+            }
+
+            Log.Information("Found {Count} channels with latest versions: {Channels}",
+                result.Count, string.Join(", ", result.Keys));
+            foreach (var kvp in result)
+            {
+                Log.Information("  {Channel}: {Version}", kvp.Key, kvp.Value);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Extracts the channel name from a version string (e.g., "beta" from "0.1.0-beta.1")
+        /// </summary>
+        private string ExtractChannelFromVersion(string version)
+        {
+            // Common channel patterns: beta, stable, rc, alpha
+            var knownChannels = new[] { "beta", "stable", "rc", "alpha" };
+
+            foreach (var channel in knownChannels)
+            {
+                if (version.Contains(channel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return channel;
+                }
+            }
+
+            // Default: if version contains a dash, use the part after the first dash as channel
+            if (version.Contains('-'))
+            {
+                var parts = version.Split('-');
+                if (parts.Length > 1)
+                {
+                    // Extract the channel part (e.g., "beta" from "beta.1")
+                    var prereleasePart = parts[1];
+                    var dotIndex = prereleasePart.IndexOf('.');
+                    if (dotIndex > 0)
+                    {
+                        return prereleasePart.Substring(0, dotIndex);
+                    }
+                    return prereleasePart;
+                }
+            }
+
+            return string.Empty;
         }
 
         /// <summary>

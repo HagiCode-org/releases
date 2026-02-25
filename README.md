@@ -150,6 +150,9 @@ nuke
 # Download package from Azure
 nuke Download --AzureBlobSasUrl "<your-sas-url>" --Version v1.0.0
 
+# Download all channels' latest versions (builds latest for beta, stable, etc.)
+nuke Download --AzureBlobSasUrl "<your-sas-url>" --BuildAllChannels
+
 # Build Docker image
 nuke DockerBuild --Version v1.0.0
 
@@ -341,6 +344,24 @@ This project uses **Nuke** for build automation. Nuke provides:
 - Verify `AZURE_BLOB_SAS_URL` is valid and not expired
 - Check the version exists in Azure Blob Storage
 - Ensure SAS URL has Read permissions
+- When using `--BuildAllChannels`, verify multiple channels exist in the index
+
+### Building Multiple Channels
+
+The build system supports building Docker images for multiple channels simultaneously:
+
+```bash
+# Build and push latest versions for all channels (beta, stable, etc.)
+nuke Download --AzureBlobSasUrl "<your-sas-url>" --BuildAllChannels
+nuke DockerBuild --BuildAllChannels
+nuke DockerPushAll --BuildAllChannels
+```
+
+**Notes:**
+- Each channel will build with its latest version
+- Channels are identified from version patterns (e.g., "beta" in "0.1.0-beta.15")
+- The system automatically detects available channels from the Azure index
+- Build summary shows which channels succeeded/failed
 
 ### Docker Build Fails
 
