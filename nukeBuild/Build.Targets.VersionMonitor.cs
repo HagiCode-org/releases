@@ -257,16 +257,17 @@ partial class Build
         {
             try
             {
-                // Query for recent repository_dispatch workflow runs
-                // Using a simpler jq expression to get workflow run data as JSON array
+                // Query for recent workflow runs for the hagicode-server-publish workflow
+                // Filter by workflow name to get only the release workflow runs
                 var processInfo = new ProcessStartInfo
                 {
                     FileName = "gh",
                     ArgumentList =
                     {
-                        "api",
-                        $"/repos/{repository}/actions/runs?per_page=10",
-                        "--jq", ".workflow_runs | map(select(.event == \"repository_dispatch\")) | .[] | \"\\(.id)\\t\\(.created_at)\""
+                        "run", "list",
+                        "--workflow=hagicode-server-publish.yml",
+                        "--json", "id,databaseId,createdAt,event,name",
+                        "--limit", "10"
                     },
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -291,37 +292,45 @@ partial class Build
 
                 if (process.ExitCode != 0)
                 {
-                    Log.Warning("gh api query failed (exit code {ExitCode}): {Error}", process.ExitCode, error);
+                    Log.Warning("gh run list failed (exit code {ExitCode}): {Error}", process.ExitCode, error);
                     Log.Debug("Output: {Output}", output);
                     break;
                 }
 
-                Log.Debug("GitHub API response: {Output}", output);
+                Log.Debug("GitHub run list response: {Output}", output);
 
-                // Parse the tab-separated output: id\tcreated_at
-                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var line in lines)
+                // Parse JSON output using System.Text.Json
+                if (!string.IsNullOrWhiteSpace(output))
                 {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    using var jsonDoc = JsonDocument.Parse(output);
+                    var root = jsonDoc.RootElement;
 
-                    var parts = line.Split('\t');
-                    if (parts.Length >= 2)
+                    if (root.ValueKind == JsonValueKind.Array)
                     {
-                        var runId = parts[0].Trim();
-                        var createdAtStr = parts[1].Trim();
-
-                        if (DateTimeOffset.TryParse(createdAtStr, out var createdAt))
+                        foreach (var run in root.EnumerateArray())
                         {
-                            var timeSinceDispatch = DateTime.UtcNow - createdAt.DateTime;
-                            Log.Debug("Found workflow run {RunId} created {Seconds}s ago: {CreatedAt}",
-                                runId, (int)timeSinceDispatch.TotalSeconds, createdAtStr);
-
-                            if (timeSinceDispatch.TotalSeconds <= 60)
+                            if (run.TryGetProperty("createdAt", out var createdAtElement) &&
+                                run.TryGetProperty("databaseId", out var idElement))
                             {
-                                Log.Information("✓ Dispatch confirmed: https://github.com/{Repository}/actions/runs/{RunId}",
-                                    repository, runId);
-                                found = true;
-                                break;
+                                var createdAtStr = createdAtElement.GetString();
+                                if (DateTimeOffset.TryParse(createdAtStr, out var createdAt))
+                                {
+                                    var timeSinceDispatch = DateTime.UtcNow - createdAt.DateTime;
+                                    Log.Debug("Found workflow run {RunId} ({Event}) created {Seconds}s ago: {CreatedAt}",
+                                        idElement.GetInt64(),
+                                        run.TryGetProperty("event", out var eventElement) ? eventElement.GetString() : "unknown",
+                                        (int)timeSinceDispatch.TotalSeconds,
+                                        createdAtStr);
+
+                                    if (timeSinceDispatch.TotalSeconds <= 60)
+                                    {
+                                        var runId = idElement.GetInt64();
+                                        Log.Information("✓ Dispatch confirmed: https://github.com/{Repository}/actions/runs/{RunId}",
+                                            repository, runId);
+                                        found = true;
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
@@ -334,6 +343,11 @@ partial class Build
 
                 // Wait 2 seconds before retrying
                 System.Threading.Thread.Sleep(2000);
+            }
+            catch (JsonException ex)
+            {
+                Log.Warning("Failed to parse GitHub API response: {Error}", ex.Message);
+                break;
             }
             catch (Exception ex)
             {
