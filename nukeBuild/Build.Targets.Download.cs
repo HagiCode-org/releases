@@ -82,11 +82,13 @@ partial class Build
             var allVersions = adapter.GetAllVersions(index);
             if (!allVersions.Contains(normalizedVersion))
             {
-                Log.Error("Version {Version} not found in Azure Blob Storage index", ReleaseVersion);
-                Log.Error("Available versions ({Count} total):", allVersions.Count);
+                Log.Warning("Version {Version} not found in Azure Blob Storage index", ReleaseVersion);
+                Log.Warning("Available versions ({Count} total):", allVersions.Count);
                 var formattedVersions = FormatAvailableVersionsList(allVersions);
-                Log.Error("{Versions}", formattedVersions);
-                throw new Exception($"Version {ReleaseVersion} not found in Azure Blob Storage index");
+                Log.Warning("{Versions}", formattedVersions);
+                Log.Warning("Falling back to BuildAllChannels mode...");
+                var channels = adapter.GetAllChannelsWithLatestVersions(index);
+                return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
             }
 
             // Determine channel
@@ -100,12 +102,12 @@ partial class Build
             var latestVersion = adapter.GetLatestVersionForChannel(index, channel);
             if (latestVersion != null && FullVersion != latestVersion)
             {
-                Log.Error("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
+                Log.Warning("Requested version {RequestedVersion} is not the latest version in the '{Channel}' channel.",
                     FullVersion, channel);
-                Log.Error("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
-                Log.Error("Hint: Use --BuildAllChannels to build all channels' latest versions,");
-                Log.Error("or use the latest version for this channel.");
-                throw new Exception($"Version {FullVersion} is not the latest in channel {channel}");
+                Log.Warning("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
+                Log.Warning("Falling back to BuildAllChannels mode...");
+                var channels = adapter.GetAllChannelsWithLatestVersions(index);
+                return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
             }
 
             return new List<(string, string)> { (channel, FullVersion) };
@@ -119,12 +121,11 @@ partial class Build
             return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
         }
 
-        // Default: ask the user what they want to do
+        // Default: fall back to BuildAllChannels
         Log.Warning("No version specified and BuildAllChannels not set.");
-        Log.Warning("Available options:");
-        Log.Warning("  1. Specify a version: --Version <version>");
-        Log.Warning("  2. Build all channels' latest: --BuildAllChannels");
-        throw new Exception("Please specify a version or use --BuildAllChannels flag");
+        Log.Warning("Falling back to BuildAllChannels mode...");
+        var channels = adapter.GetAllChannelsWithLatestVersions(index);
+        return channels.Select(kvp => (kvp.Key, kvp.Value)).ToList();
     }
 
     /// <summary>
