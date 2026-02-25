@@ -564,7 +564,7 @@ partial class Build
         else
         {
             var localImage = $"{BaseImageName}:{FullVersion}";
-            PushToRegistry(localImage, AzureAcrRegistry, AzureAcrUsername, AzureAcrPassword, tags);
+            PushImageToRegistry(localImage, AzureAcrRegistry, AzureAcrUsername, AzureAcrPassword, tags);
         }
 
         Log.Information("Docker images pushed to Azure ACR successfully");
@@ -583,7 +583,7 @@ partial class Build
         else
         {
             var localImage = $"{BaseImageName}:{FullVersion}";
-            PushToRegistry(localImage, AliyunAcrRegistry, AliyunAcrUsername, AliyunAcrPassword, tags);
+            PushImageToRegistry(localImage, AliyunAcrRegistry, AliyunAcrUsername, AliyunAcrPassword, tags);
         }
 
         Log.Information("Docker images pushed to Aliyun ACR successfully");

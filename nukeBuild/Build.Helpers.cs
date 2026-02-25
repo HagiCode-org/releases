@@ -65,7 +65,7 @@ partial class Build
     /// <param name="username">Registry username</param>
     /// <param name="password">Registry password</param>
     /// <param name="tags">List of tags to push</param>
-    void PushToRegistry(string localImage, string targetRegistry, string username, string password, List<string> tags)
+    void PushImageToRegistry(string localImage, string targetRegistry, string username, string password, List<string> tags)
     {
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
         {
