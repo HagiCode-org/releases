@@ -16,7 +16,7 @@
 # only contain the application code and dependencies, resulting in smaller images
 # and better layer caching.
 
-FROM node:24-linux-arm64
+FROM node:24
 
 # Metadata labels
 LABEL description="HagiCode Base ARM64 - Node.js 24 on Ubuntu ARM64, .NET 10 runtime with CLI tools and Git"
