@@ -105,7 +105,7 @@ partial class Build
                 Log.Error("Latest version in '{Channel}' channel: {LatestVersion}", channel, latestVersion);
                 Log.Error("Hint: Use --BuildAllChannels to build all channels' latest versions,");
                 Log.Error("or use the latest version for this channel.");
-                throw new Exception($"Version {FullVersion} is not the latest in channel {Channel}");
+                throw new Exception($"Version {FullVersion} is not the latest in channel {channel}");
             }
 
             return new List<(string, string)> { (channel, FullVersion) };
