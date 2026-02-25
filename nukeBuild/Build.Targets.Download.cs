@@ -28,6 +28,7 @@ partial class Build
         // Download each version
         var adapter = new AzureBlobAdapter();
         var allResults = new List<string>();
+        DownloadedVersions.Clear();
 
         foreach (var (channel, version) in versionsToDownload)
         {
@@ -38,6 +39,7 @@ partial class Build
             try
             {
                 var result = DownloadVersion(adapter, version);
+                DownloadedVersions.Add((channel, version));
                 allResults.Add($"✓ {channel}: {version}");
             }
             catch (Exception ex)
@@ -56,6 +58,8 @@ partial class Build
         {
             Log.Information("{Result}", result);
         }
+
+        Log.Information("Using version for Docker builds: {Version}", EffectiveVersion);
     }
 
     /// <summary>

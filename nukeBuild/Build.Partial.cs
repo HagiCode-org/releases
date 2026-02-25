@@ -28,13 +28,30 @@ partial class Build
     bool BuildAllChannels { get; set; }
 
     // ==========================================================================
+    // State
+    // ==========================================================================
+
+    /// <summary>
+    /// Stores the versions that were actually downloaded (channel -> version mapping)
+    /// </summary>
+    List<(string channel, string version)> DownloadedVersions { get; set; } = new();
+
+    /// <summary>
+    /// Gets the effective version to use for Docker builds
+    /// Returns the first downloaded version, or falls back to ReleaseVersion
+    /// </summary>
+    string EffectiveVersion => DownloadedVersions.Count > 0
+        ? DownloadedVersions[0].version
+        : ReleaseVersion.TrimStart('v');
+
+    // ==========================================================================
     // Shared Helper Properties
     // ==========================================================================
 
     /// <summary>
     /// Gets the full version string without 'v' prefix
     /// </summary>
-    string FullVersion => ReleaseVersion.TrimStart('v');
+    string FullVersion => EffectiveVersion;
 
     /// <summary>
     /// Gets the major version (e.g., "1" from "1.2.3")
