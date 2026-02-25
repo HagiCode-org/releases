@@ -300,21 +300,58 @@ partial class Build
                 var dockerfile = platform.Contains("arm64") ? "Dockerfile.base.arm64" : "Dockerfile.base";
 
                 Log.Information("Building platform {Platform}: {Tag}", platform, platformTag);
+                Log.Debug("  Dockerfile: {Dockerfile}", dockerfile);
 
-                DockerTasks.DockerBuild(s => s
-                    .SetPath(DockerDeploymentDirectory)
-                    .SetFile(DockerDeploymentDirectory / dockerfile)
-                    .SetTag(platformTag)
-                    .SetPlatform(platform)
-                    .EnableRm()
-                    .EnablePull());
+                // Use raw docker command for better control over platform builds
+                var buildProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "docker",
+                        Arguments = $"build " +
+                                    $"--platform {platform} " +
+                                    $"--tag \"{platformTag}\" " +
+                                    $"--file \"{DockerDeploymentDirectory / dockerfile}\" " +
+                                    $"--rm " +
+                                    $"\"{DockerDeploymentDirectory}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false
+                    }
+                };
+
+                buildProcess.Start();
+                var output = buildProcess.StandardOutput.ReadToEnd();
+                var error = buildProcess.StandardError.ReadToEnd();
+                buildProcess.WaitForExit();
+
+                if (buildProcess.ExitCode != 0)
+                {
+                    Log.Error("Failed to build base image for platform {Platform}", platform);
+                    Log.Error("Error: {Error}", error);
+                    throw new Exception($"Failed to build base image for platform {platform}: {error}");
+                }
 
                 platformBaseTags[platform] = platformTag;
                 Log.Information("✓ Platform {Platform} base image built: {Tag}", platform, platformTag);
+                Log.Debug("  Build output: {Output}", output);
             }
 
             Log.Information("✓ All platform base images built locally");
             Log.Information("  Platform-specific tags: {Tags}", string.Join(", ", platformBaseTags.Values));
+            Log.Debug("  Platform mapping: {Mapping}", string.Join(", ", platformBaseTags.Select(kv => $"{kv.Key}={kv.Value}")));
+
+            // Verify each base image exists in local Docker
+            foreach (var kvp in platformBaseTags)
+            {
+                var exists = IsImageInLocalDocker(kvp.Value);
+                if (!exists)
+                {
+                    Log.Error("Base image {Tag} for platform {Platform} not found in local Docker after build", kvp.Value, kvp.Key);
+                    throw new Exception($"Failed to build base image for platform {kvp.Key}: {kvp.Value}");
+                }
+                Log.Debug("✓ Verified base image exists locally: {Tag}", kvp.Value);
+            }
 
             // Store for use in application build
             PlatformBaseTags = platformBaseTags;
@@ -520,14 +557,47 @@ partial class Build
                 var platformDockerfilePath = DockerBuildContext / $"Dockerfile.{platform.Replace("/", "-")}";
                 System.IO.File.WriteAllText(platformDockerfilePath, dockerfileContent);
 
-                DockerTasks.DockerBuild(s => s
-                    .SetPath(DockerBuildContext)
-                    .SetFile(platformDockerfilePath)
-                    .SetTag(tags)
-                    .SetPlatform(platform)
-                    .SetBuildArg($"VERSION={FullVersion}")
-                    .EnableRm()
-                    .EnablePull());
+                // Log the FROM line for debugging
+                var fromLine = dockerfileContent.Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith("FROM"));
+                Log.Debug("  Generated Dockerfile FROM: {FromLine}", fromLine);
+
+                // Create platform-specific tags to avoid conflicts
+                var platformSuffix = platform.Replace("/", "-");
+                var platformTags = tags.Select(t => $"{t}-{platformSuffix}").ToList();
+
+                Log.Information("  Platform tags: {Tags}", string.Join(", ", platformTags));
+
+                // Use raw docker command for better control over platform builds
+                var tagsArg = string.Join(" ", platformTags.Select(t => $"--tag \"{t}\""));
+                var buildProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "docker",
+                        Arguments = $"build " +
+                                    $"--platform {platform} " +
+                                    $"{tagsArg} " +
+                                    $"--file \"{platformDockerfilePath}\" " +
+                                    $"--build-arg \"VERSION={FullVersion}\" " +
+                                    $"--rm " +
+                                    $"\"{DockerBuildContext}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false
+                    }
+                };
+
+                buildProcess.Start();
+                var output = buildProcess.StandardOutput.ReadToEnd();
+                var error = buildProcess.StandardError.ReadToEnd();
+                buildProcess.WaitForExit();
+
+                if (buildProcess.ExitCode != 0)
+                {
+                    Log.Error("Failed to build application image for platform {Platform}", platform);
+                    Log.Error("Error: {Error}", error);
+                    throw new Exception($"Failed to build application image for platform {platform}: {error}");
+                }
 
                 Log.Information("✓ Platform {Platform} application image built", platform);
             }
@@ -539,14 +609,20 @@ partial class Build
     /// <summary>
     /// Generates the application Dockerfile content
     /// </summary>
-    string GenerateAppDockerfile(string baseImageTag = null)
+    string GenerateAppDockerfile(string? baseImageTag = null)
     {
         var templateContent = System.IO.File.ReadAllText(DockerDeploymentDirectory / "Dockerfile.app.template");
         var baseTagToUse = baseImageTag ?? BaseDockerTag;
-        return templateContent
+        var result = templateContent
             .Replace("{version}", FullVersion)
             .Replace("{build_date}", BuildDate)
             .Replace("{base_image_name}:base", baseTagToUse);
+
+        // Debug logging
+        var firstLine = result.Split('\n').FirstOrDefault(l => l.StartsWith("FROM"));
+        Log.Debug("Generated Dockerfile FROM line: {FromLine}", firstLine);
+
+        return result;
     }
 
     void DockerLoginExecute()
@@ -734,6 +810,36 @@ partial class Build
         var error = process.StandardError.ReadToEnd();
 
         Log.Debug("Manifest inspect result for {Image}: ExitCode={ExitCode}", imageTag, process.ExitCode);
+
+        return process.ExitCode == 0;
+    }
+
+    /// <summary>
+    /// Check if a Docker image exists in local Docker
+    /// Uses docker image inspect to verify local availability
+    /// </summary>
+    bool IsImageInLocalDocker(string imageTag)
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"image inspect \"{imageTag}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        process.Start();
+        process.WaitForExit();
+
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+
+        Log.Debug("Image inspect result for {Image}: ExitCode={ExitCode}", imageTag, process.ExitCode);
 
         return process.ExitCode == 0;
     }

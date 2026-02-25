@@ -143,6 +143,10 @@
           "description": "Azure Blob Storage SAS URL for downloading packages",
           "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
+        "BuildAllChannels": {
+          "type": "boolean",
+          "description": "Build all channels' latest versions instead of a specific version"
+        },
         "DockerImageName": {
           "type": "string",
           "description": "Docker image name"
@@ -178,9 +182,17 @@
           "type": "string",
           "description": "Output directory for downloaded/extracted files"
         },
-        "Version": {
+        "Platform": {
           "type": "string",
-          "description": "Version from git tag (e.g., v1.0.0)"
+          "description": "Target platform for Docker build (linux-x64, linux-arm64, all) - Default is linux-x64"
+        },
+        "PushToRegistry": {
+          "type": "boolean",
+          "description": "Push images to registry during build"
+        },
+        "ReleaseVersion": {
+          "type": "string",
+          "description": "Release version from git tag (e.g., v1.0.0)"
         }
       }
     },
