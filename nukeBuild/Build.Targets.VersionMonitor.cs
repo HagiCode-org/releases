@@ -266,7 +266,7 @@ partial class Build
                     {
                         "run", "list",
                         "--workflow=hagicode-server-publish.yml",
-                        "--json", "id,databaseId,createdAt,event,name",
+                        "--json", "databaseId,createdAt,event,name",
                         "--limit", "10"
                     },
                     RedirectStandardOutput = true,
