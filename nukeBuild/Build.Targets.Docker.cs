@@ -106,18 +106,54 @@ partial class Build
             DockerPushAliyunExecute();
         });
 
+    /// <summary>
+    /// Docker Push All target (LEGACY - kept for backward compatibility)
+    /// Note: In the new architecture, each registry push is independent
+    /// Use DockerBuildAzure for Azure ACR (central distribution point)
+    /// Use DockerPushHubOnly for Docker Hub sync from Azure
+    /// Use DockerPushAliyunOnly for Aliyun ACR sync from Azure
+    /// </summary>
     Target DockerPushAll => _ => _
         .DependsOn(DockerPush, DockerPushAliyun, DockerPushAzure)
         .Executes(() =>
         {
+            Log.Warning("DockerPushAll is using legacy serial push pattern");
+            Log.Warning("For new parallel deployment architecture, use:");
+            Log.Warning("  - DockerBuildAzure for Azure ACR (central distribution)");
+            Log.Warning("  - DockerPushHubOnly for Docker Hub sync");
+            Log.Warning("  - DockerPushAliyunOnly for Aliyun ACR sync");
             Log.Information("All Docker registry pushes completed");
         });
 
     /// <summary>
-/// Main Docker build execution
-/// Builds both base and application Docker images
-/// For multi-arch builds, verifies base image availability before building application images
-/// </summary>
+    /// Docker Build and Push to Azure ACR target
+    /// Builds multi-architecture images and pushes directly to Azure Container Registry
+    /// Used as the central distribution point for parallel downstream synchronization
+    /// </summary>
+    Target DockerBuildAzure => _ => _
+        .DependsOn(Extract)
+        .Requires(() => DockerImageName)
+        .Requires(() => AzureAcrUsername)
+        .Requires(() => AzureAcrPassword)
+        .Produces(OutputDirectory / "docker-image-built.txt")
+        .Executes(DockerBuildAzureExecute);
+
+    /// <summary>
+    /// Docker Push to Docker Hub only target
+    /// Syncs multi-architecture images from source registry to Docker Hub
+    /// Used for parallel downstream synchronization from Azure ACR
+    /// </summary>
+    Target DockerPushHubOnly => _ => _
+        .Requires(() => DockerImageName)
+        .Requires(() => DockerUsername)
+        .Requires(() => DockerPassword)
+        .Executes(DockerPushHubOnlyExecute);
+
+    /// <summary>
+    /// Main Docker build execution
+    /// Builds both base and application Docker images
+    /// For multi-arch builds, verifies base image availability before building application images
+    /// </summary>
     void DockerBuildExecute()
     {
         Log.Information("Building Docker images (base + application)");
@@ -158,6 +194,316 @@ partial class Build
             OutputDirectory / "docker-image-built.txt",
             $"Built at {DateTime.UtcNow:O}\nPlatforms: {string.Join(", ", TargetDockerPlatforms)}\nBase: {BaseDockerTag}\nApp: {string.Join(", ", appTags)}");
     }
+
+    /// <summary>
+    /// Docker Build and Push to Azure ACR execution
+    /// Builds multi-architecture images and pushes directly to Azure Container Registry
+    /// This is the central distribution point for parallel downstream synchronization
+    /// </summary>
+    void DockerBuildAzureExecute()
+    {
+        Log.Information("Building and pushing Docker images to Azure ACR");
+        Log.Information("Target platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
+
+        if (!IsMultiArchBuild)
+        {
+            Log.Warning("DockerBuildAzure is optimized for multi-architecture builds");
+            Log.Warning("For single-arch builds, consider using DockerBuild + DockerPushAzure");
+        }
+
+        var appTags = GetAppDockerTags();
+        Log.Information("Application tags: {Tags}", string.Join(", ", appTags));
+
+        // Step 1: Setup QEMU for cross-architecture builds
+        if (IsMultiArchBuild)
+        {
+            SetupQemu();
+        }
+
+        // Step 2: Build and push base image to Azure ACR
+        BuildAndPushBaseImageToAzure();
+
+        // Step 3: Generate application Dockerfile from template
+        var dockerfileContent = GenerateAppDockerfile();
+        PrepareDockerBuildContext(dockerfileContent);
+
+        // Step 4: Build and push application images to Azure ACR
+        BuildAndPushAppImageToAzure(appTags);
+
+        // Mark that docker image was built
+        System.IO.File.WriteAllText(
+            OutputDirectory / "docker-image-built.txt",
+            $"Built at {DateTime.UtcNow:O}\nPlatforms: {string.Join(", ", TargetDockerPlatforms)}\nRegistry: Azure ACR\nApp: {string.Join(", ", appTags)}");
+
+        Log.Information("✓ All images built and pushed to Azure ACR successfully");
+    }
+
+    /// <summary>
+    /// Build and push multi-architecture base image to Azure ACR
+    /// </summary>
+    void BuildAndPushBaseImageToAzure()
+    {
+        Log.Information("Building and pushing base image to Azure ACR: {BaseTag}", BaseDockerTag);
+        Log.Information("  Platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
+
+        // Create multi-arch builder if it doesn't exist
+        EnsureBuildxBuilder("hagicode-multiarch");
+
+        var platformsArg = string.Join(",", TargetDockerPlatforms);
+        var buildxBaseTag = $"{AzureAcrRegistry}/{DockerImageName}:base-{FullVersion}";
+        var baseDockerTag = $"{AzureAcrRegistry}/{DockerImageName}:base";
+
+        var arguments = $"buildx build " +
+                        $"--platform {platformsArg} " +
+                        $"--progress=plain " +
+                        $"--file \"{DockerDeploymentDirectory / "Dockerfile.base"}\" " +
+                        $"--tag \"{buildxBaseTag}\" " +
+                        $"--tag \"{baseDockerTag}\" " +
+                        $"--output type=registry " +
+                        $"--builder hagicode-multiarch " +
+                        $"\"{DockerDeploymentDirectory}\"";
+
+        Log.Information("Starting base image build and push to Azure ACR...");
+
+        try
+        {
+            ExecuteProcessWithStreamingOutput(
+                "docker",
+                arguments,
+                "Base image build and Azure push",
+                enableHeartbeat: true,
+                treatStderrAsOutput: true
+            );
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Base image build or Azure push failed: {Error}", ex.Message);
+            throw;
+        }
+
+        Log.Information("✓ Base image built and pushed to Azure ACR: {BaseTag}", baseDockerTag);
+    }
+
+    /// <summary>
+    /// Build and push multi-architecture application image to Azure ACR
+    /// </summary>
+    void BuildAndPushAppImageToAzure(List<string> tags)
+    {
+        Log.Information("Building and pushing application image to Azure ACR");
+        Log.Information("  Platforms: {Platforms}", string.Join(", ", TargetDockerPlatforms));
+
+        // Create multi-arch builder if it doesn't exist
+        EnsureBuildxBuilder("hagicode-multiarch");
+
+        var platformsArg = string.Join(",", TargetDockerPlatforms);
+        var azureTags = tags.Select(t => $"{AzureAcrRegistry}/{t}");
+        var tagsArg = string.Join(" ", azureTags.Select(t => $"--tag \"{t}\""));
+
+        var arguments = $"buildx build " +
+                        $"--platform {platformsArg} " +
+                        $"--progress=plain " +
+                        $"{tagsArg} " +
+                        $"--file \"{DockerBuildContext / "Dockerfile"}\" " +
+                        $"--builder hagicode-multiarch " +
+                        $"--output type=registry " +
+                        $"--build-arg \"VERSION={FullVersion}\" " +
+                        $"\"{DockerBuildContext}\"";
+
+        try
+        {
+            ExecuteProcessWithStreamingOutput(
+                "docker",
+                arguments,
+                "Application image build and Azure push",
+                enableHeartbeat: true,
+                treatStderrAsOutput: true
+            );
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Application image build or Azure push failed: {Error}", ex.Message);
+            throw;
+        }
+
+        Log.Information("✓ Application images built and pushed to Azure ACR");
+    }
+
+    /// <summary>
+    /// Docker Push to Docker Hub only execution
+    /// Syncs multi-architecture images from source registry to Docker Hub
+    /// </summary>
+    void DockerPushHubOnlyExecute()
+    {
+        Log.Information("Syncing multi-architecture images to Docker Hub");
+
+        // Get source registry from environment (default: Azure ACR)
+        var sourceRegistry = Environment.GetEnvironmentVariable("SOURCE_REGISTRY") ?? AzureAcrRegistry;
+        var targetRegistry = "docker.io";
+
+        Log.Information("Source registry: {SourceRegistry}", sourceRegistry);
+        Log.Information("Target registry: {TargetRegistry}", targetRegistry);
+
+        var tags = GetAppDockerTags();
+
+        // Login to source registry
+        if (!string.IsNullOrEmpty(sourceRegistry) && sourceRegistry != "docker.io")
+        {
+            var sourceUsername = AzureAcrUsername;
+            var sourcePassword = AzureAcrPassword;
+            Log.Information("Logging in to source registry: {Registry}", sourceRegistry);
+            DockerTasks.DockerLogin(s => s
+                .SetServer(sourceRegistry)
+                .SetUsername(sourceUsername)
+                .SetPassword(sourcePassword));
+        }
+
+        // Login to target registry (Docker Hub)
+        Log.Information("Logging in to Docker Hub");
+        DockerTasks.DockerLogin(s => s
+            .SetServer(targetRegistry)
+            .SetUsername(DockerUsername)
+            .SetPassword(DockerPassword));
+
+        // Sync each tag
+        SyncImagesFromSource(sourceRegistry, targetRegistry, tags);
+
+        Log.Information("✓ All images synced to Docker Hub successfully");
+    }
+
+    /// <summary>
+    /// Docker Push to Aliyun ACR only execution
+    /// Syncs multi-architecture images from source registry to Aliyun ACR
+    /// </summary>
+    void DockerPushAliyunOnlyExecute()
+    {
+        Log.Information("Syncing multi-architecture images to Aliyun ACR");
+
+        // Get source registry from environment (default: Azure ACR)
+        var sourceRegistry = Environment.GetEnvironmentVariable("SOURCE_REGISTRY") ?? AzureAcrRegistry;
+        var targetRegistry = AliyunAcrRegistry;
+
+        Log.Information("Source registry: {SourceRegistry}", sourceRegistry);
+        Log.Information("Target registry: {TargetRegistry}", targetRegistry);
+
+        var tags = GetAppDockerTags();
+
+        // Login to source registry
+        if (!string.IsNullOrEmpty(sourceRegistry))
+        {
+            var sourceUsername = AzureAcrUsername;
+            var sourcePassword = AzureAcrPassword;
+            Log.Information("Logging in to source registry: {Registry}", sourceRegistry);
+            DockerTasks.DockerLogin(s => s
+                .SetServer(sourceRegistry)
+                .SetUsername(sourceUsername)
+                .SetPassword(sourcePassword));
+        }
+
+        // Login to target registry (Aliyun ACR)
+        Log.Information("Logging in to Aliyun ACR");
+        DockerTasks.DockerLogin(s => s
+            .SetServer(targetRegistry)
+            .SetUsername(AliyunAcrUsername)
+            .SetPassword(AliyunAcrPassword));
+
+        // Sync each tag
+        SyncImagesFromSource(sourceRegistry, targetRegistry, tags);
+
+        Log.Information("✓ All images synced to Aliyun ACR successfully");
+    }
+
+    /// <summary>
+    /// Sync multi-architecture images from source registry to target registry
+    /// Uses docker buildx imagetools to create and push multi-arch manifests
+    /// </summary>
+    void SyncImagesFromSource(string sourceRegistry, string targetRegistry, List<string> tags)
+    {
+        Log.Information("=== Syncing multi-architecture images ===");
+        Log.Information("Source: {SourceRegistry}/{Image}", sourceRegistry, DockerImageName);
+        Log.Information("Target: {TargetRegistry}/{Image}", targetRegistry, DockerImageName);
+
+        foreach (var tag in tags)
+        {
+            var sourceTag = tag.Contains("/") ? tag : $"{sourceRegistry}/{DockerImageName}:{tag}";
+            var tagPart = tag.Contains(":") ? tag.Substring(tag.IndexOf(':') + 1) : tag;
+            var targetTag = $"{targetRegistry}/{DockerImageName}:{tagPart}";
+
+            Log.Information("Syncing: {Source} -> {Target}", sourceTag, targetTag);
+
+            // Use docker buildx imagetools to create manifest and push
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = $"buildx imagetools create " +
+                                $"--tag \"{targetTag}\" " +
+                                $"\"{sourceTag}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                Log.Error("Failed to sync image {Tag}: {Error}", sourceTag, error);
+                throw new Exception($"Failed to sync multi-architecture manifest: {error}");
+            }
+
+            Log.Information("✓ Synced: {Target}", targetTag);
+        }
+
+        // Also sync base image
+        var sourceBaseTag = $"{sourceRegistry}/{DockerImageName}:base";
+        var targetBaseTag = $"{targetRegistry}/{DockerImageName}:base";
+
+        Log.Information("Syncing base image: {Source} -> {Target}", sourceBaseTag, targetBaseTag);
+
+        var baseProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"buildx imagetools create " +
+                            $"--tag \"{targetBaseTag}\" " +
+                            $"\"{sourceBaseTag}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            }
+        };
+
+        baseProcess.Start();
+        var baseOutput = baseProcess.StandardOutput.ReadToEnd();
+        var baseError = baseProcess.StandardError.ReadToEnd();
+        baseProcess.WaitForExit();
+
+        if (baseProcess.ExitCode != 0)
+        {
+            Log.Error("Failed to sync base image: {Error}", baseError);
+            throw new Exception($"Failed to sync base image: {baseError}");
+        }
+
+        Log.Information("✓ Synced base image: {Target}", targetBaseTag);
+
+        Log.Information("=== All images synced successfully ===");
+    }
+
+    /// <summary>
+    /// Docker Push to Aliyun ACR only target
+    /// Syncs multi-architecture images from source registry to Aliyun ACR
+    /// </summary>
+    Target DockerPushAliyunOnly => _ => _
+        .Requires(() => DockerImageName)
+        .Requires(() => AliyunAcrUsername)
+        .Requires(() => AliyunAcrPassword)
+        .Executes(DockerPushAliyunOnlyExecute);
 
     /// <summary>
     /// Setup QEMU for cross-architecture Docker builds
@@ -252,7 +598,8 @@ partial class Build
                     "docker",
                     arguments,
                     "Multi-arch base image build and registry push",
-                    enableHeartbeat: true
+                    enableHeartbeat: true,
+                    treatStderrAsOutput: true
                 );
             }
             catch (Exception ex)
@@ -488,7 +835,8 @@ partial class Build
                     "docker",
                     arguments,
                     "Multi-arch application image build and registry push",
-                    enableHeartbeat: true
+                    enableHeartbeat: true,
+                    treatStderrAsOutput: true
                 );
             }
             catch (Exception ex)
@@ -872,9 +1220,10 @@ partial class Build
     /// <param name="arguments">Command line arguments</param>
     /// <param name="operationDescription">Description of the operation for logging</param>
     /// <param name="enableHeartbeat">Whether to enable periodic heartbeat logging during execution</param>
+    /// <param name="treatStderrAsOutput">When true, stderr output is logged as Information instead of Warning (useful for buildx --progress=plain)</param>
     /// <returns>The exit code of the process</returns>
     /// <exception cref="Exception">Thrown when the process exits with a non-zero exit code</exception>
-    int ExecuteProcessWithStreamingOutput(string fileName, string arguments, string operationDescription, bool enableHeartbeat = false)
+    int ExecuteProcessWithStreamingOutput(string fileName, string arguments, string operationDescription, bool enableHeartbeat = false, bool treatStderrAsOutput = false)
     {
         var timeout = GetBuildTimeout();
         var buildStartTime = DateTime.UtcNow;
@@ -918,7 +1267,16 @@ partial class Build
                 {
                     lock (outputLock)
                     {
-                        Log.Warning("{Data}", e.Data);
+                        // Docker buildx with --progress=plain sends output to stderr
+                        // Treat it as info instead of warning to avoid duplicate/confusing logs
+                        if (treatStderrAsOutput)
+                        {
+                            Log.Information("{Data}", e.Data);
+                        }
+                        else
+                        {
+                            Log.Warning("{Data}", e.Data);
+                        }
                         stderrOutput.AppendLine(e.Data);
                     }
                 }
