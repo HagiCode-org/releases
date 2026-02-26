@@ -2,11 +2,11 @@
 # Latest Version Trigger
 #
 # This workflow is triggered by push to main branch.
-# It gets the latest version from Git tags and triggers the release workflow.
+# It gets the latest version from Git tags and triggers release workflow.
 #
 # Similar to version-monitor.yml but:
 # - Does NOT check for missing versions from Azure Blob
-# - Directly gets the latest version from Git tags
+# - Directly gets latest version from Git tags
 # - Triggers release workflow for testing purposes
 # ------------------------------------------------------------------------------
 
@@ -42,22 +42,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Fetch all history to get all tags
+          fetch-depth: 0
 
       - name: Get latest version from Git tags
         id: get-version
         run: |
           echo "Fetching all v* tags from Git..."
 
-          # Get latest v* tag (sorted by version, not by date)
           LATEST_VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
 
           echo "Latest version: $LATEST_VERSION"
 
-          # Validate version format
-          if [[ ! "$LATEST_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$LATEST_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(-[a-zA-Z]+)?$ ]]; then
             echo "Error: Invalid version format: $LATEST_VERSION"
-            echo "Expected format: v1.2.3"
+            echo "Expected format: v1.2.3 or v1.2.3-beta.1"
             exit 1
           fi
 
@@ -102,7 +100,6 @@ jobs:
   trigger-release-workflow:
     name: Trigger Release Workflow
     needs: get-latest-version
-    # Only trigger if should_trigger is true
     if: needs.get-latest-version.outputs.should_trigger == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -134,7 +131,7 @@ jobs:
         if: always()
         with:
           msg_type: 'post'
-          title: '触发生成 🚀'
+          title: '触发成功 🚀'
           message: |
             **触发方式**: main 分支推送
             **最新版本**: ${{ needs.get-latest-version.outputs.latest_version }}
