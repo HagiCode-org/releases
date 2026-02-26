@@ -2,12 +2,10 @@
 # Latest Version Trigger
 #
 # This workflow is triggered by push to main branch.
-# It gets all versions from Edge Index (Azure Blob), finds unreleased versions,
-# and triggers the release workflow for the latest unreleased version.
+# It gets all versions from Git tags and GitHub Releases, finds unreleased versions,
+# and triggers release workflow for the latest unreleased version.
 #
-# Similar to version-monitor.yml but:
-# - Also uses Edge Index (Azure Blob) as source of truth
-# - Finds all unreleased versions and picks the latest one
+# Simplified version - does NOT use Nuke VersionMonitor
 # ------------------------------------------------------------------------------
 
 name: Latest Version Trigger
@@ -32,8 +30,8 @@ permissions:
   actions: write
 
 jobs:
-  get-versions-from-edge:
-    name: Get Versions from Edge Index
+  get-unreleased-versions:
+    name: Get Unreleased Versions
     runs-on: ubuntu-latest
     outputs:
       all_versions: ${{ steps.get-versions.outputs.all_versions }}
@@ -44,79 +42,59 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Get all versions from Edge Index
+      - name: Get all v* tags from Git
         id: get-versions
         run: |
-          echo "Downloading index.json from Edge Index..."
+          echo "Fetching all v* tags from Git..."
 
-          # Run Nuke VersionMonitor to get versions from Edge Index
-          dotnet run --project nukeBuild -- VersionMonitor \
-            --AzureBlobSasUrl "${{ secrets.AZURE_BLOB_SAS_URL }}" \
-            --GitHubToken "${{ secrets.GITHUB_TOKEN }}" \
-            --GitHubRepository "${{ github.repository }}" \
-            --DryRun "false" \
-            --ListOnly "true"
+          # Get all v* tags, sort by version (newest first)
+          ALL_TAGS=$(git tag -l 'v*' --sort=-version:refname 2>/dev/null || echo "")
 
-          echo "Version check completed"
-
-      - name: Get unreleased versions
-        id: check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Checking for unreleased versions..."
-
-          # Parse VersionMonitor output to get unreleased versions
-          # VersionMonitor outputs: has_new_versions and new_versions
-          # We need to extract the new_versions output
+          echo "All Git tags: $ALL_TAGS"
 
           # Get GitHub releases
           GH_RELEASES=$(gh release list --json tagName 2>/dev/null || echo "[]")
 
           echo "GitHub releases: $GH_RELEASES"
 
-          # For now, let's use Git tags as the source of truth
-          # Get all v* tags sorted by version
-          ALL_TAGS=$(git tag -l 'v*' --sort=-version:refname 2>/dev/null || echo "")
-          echo "All Git tags: $ALL_TAGS"
-
-          # Find unreleased tags (not in GitHub releases)
+          # Find unreleased versions (in Git tags but NOT in GitHub releases)
           UNRELEASED_VERSIONS=""
           for TAG in $ALL_TAGS; do
-            if ! echo "$GH_RELEASES" | grep -q "\"$TAG\""; then
+            # Check if this tag exists in GitHub releases
+            if echo "$GH_RELEASES" | grep -q "\"$TAG\""; then
+              echo "  Tag $TAG already released"
+            else
               UNRELEASED_VERSIONS="$UNRELEASED_VERSIONS,$TAG"
-            fi
+              echo "  Tag $TAG not released (unreleased)"
           done
 
           # Remove leading comma if any
-          UNRELEASED_VERSIONS="${UNRELEASED_VERSIONS#,}"
+          ALL_TAGS_CSV="${UNRELEASED_VERSIONS#,}"
 
-          echo "Unreleased versions: $UNRELEASED_VERSIONS"
+          echo "Unreleased versions: $ALL_TAGS_CSV"
 
-          if [ -z "$UNRELEASED_VERSIONS" ]; then
-            echo "No unreleased versions found"
-            echo "all_versions=$UNRELEASED_VERSIONS" >> $GITHUB_OUTPUT
-            echo "unreleased_versions=" >> $GITHUB_OUTPUT
-            echo "latest_unreleased=" >> $GITHUB_OUTPUT
-            echo "should_trigger=false" >> $GITHUB_OUTPUT
-          else
-            # Get the latest unreleased version
-            LATEST_UNRELEASED=$(echo "$UNRELEASED_VERSIONS" | tail -1)
+          # Output results
+          echo "all_versions=$ALL_TAGS_CSV" >> $GITHUB_OUTPUT
+          echo "unreleased_versions=$ALL_TAGS_CSV" >> $GITHUB_OUTPUT
+
+          # Get latest unreleased version (the first one)
+          LATEST_UNRELEASED=$(echo "$ALL_TAGS_CSV" | cut -d',' -f1 | head -1)
+
+          if [ -n "$LATEST_UNRELEASED" ]; then
             echo "Latest unreleased version: $LATEST_UNRELEASED"
-            echo "all_versions=$UNRELEASED_VERSIONS" >> $GITHUB_OUTPUT
-            echo "unreleased_versions=$UNRELEASED_VERSIONS" >> $GITHUB_OUTPUT
             echo "latest_unreleased=$LATEST_UNRELEASED" >> $GITHUB_OUTPUT
+          else
+            echo "No unreleased versions found"
+            echo "latest_unreleased=" >> $GITHUB_OUTPUT
+
+          if [ -n "$LATEST_UNRELEASED" ]; then
             echo "should_trigger=true" >> $GITHUB_OUTPUT
-          fi
+          else
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
 
       - name: Check for dry run
         id: dry-run-check
-        if: steps.check.outputs.should_trigger == 'true'
+        if: steps.get-versions.outputs.should_trigger == 'true'
         run: |
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           echo "Dry run: $DRY_RUN"
@@ -127,19 +105,18 @@ jobs:
           else
             echo "EXECUTION MODE - Will trigger release workflow"
             echo "should_trigger=true" >> $GITHUB_OUTPUT
-          fi
 
       - name: Output results
         run: |
           echo "=== Latest Version Trigger Results ==="
-          echo "Latest unreleased version: ${{ steps.check.outputs.latest_unreleased }}"
+          echo "Latest unreleased version: ${{ steps.get-versions.outputs.latest_unreleased }}"
           echo "Should trigger: ${{ steps.dry-run-check.outputs.should_trigger }}"
           echo "======================================"
 
   trigger-release-workflow:
     name: Trigger Release Workflow
-    needs: get-versions-from-edge
-    if: needs.get-versions-from-edge.outputs.should_trigger == 'true'
+    needs: get-unreleased-versions
+    if: needs.get-unreleased-versions.outputs.should_trigger == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -148,7 +125,7 @@ jobs:
       - name: Trigger GitHub Release Workflow
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.get-versions-from-edge.outputs.latest_unreleased }}
+          VERSION: ${{ needs.get-unreleased-versions.outputs.latest_unreleased }}
         run: |
           echo "Triggering github-release-workflow.yml for version $VERSION..."
           gh workflow run github-release-workflow.yml \
@@ -157,7 +134,7 @@ jobs:
       - name: Trigger Docker Build and Azure Publish Workflow
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.get-versions-from-edge.outputs.latest_unreleased }}
+          VERSION: ${{ needs.get-unreleased-versions.outputs.latest_unreleased }}
         run: |
           echo "Triggering docker-build-azure-publish.yml for version $VERSION..."
           gh workflow run docker-build-azure-publish.yml \
@@ -173,7 +150,7 @@ jobs:
           title: '触发成功 🚀'
           message: |
             **触发方式**: main 分支推送
-            **最新版本**: ${{ needs.get-versions-from-edge.outputs.latest_unreleased }}
+            **最新版本**: ${{ needs.get-unreleased-versions.outputs.latest_unreleased }}
             **状态**: ${{ job.status == 'success' && '已触发发布工作流' || '触发失败' }}
             **触发者**: ${{ github.actor }}
             **时间**: ${{ github.event.head_commit.timestamp }}
@@ -187,6 +164,6 @@ jobs:
 
             **链接**:
             • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            • Latest Version: ${{ needs.get-versions-from-edge.outputs.latest_unreleased }}
+            • Latest Version: ${{ needs.get-unreleased-versions.outputs.latest_unreleased }}
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
