@@ -1,0 +1,156 @@
+# ------------------------------------------------------------------------------
+# Latest Version Trigger
+#
+# This workflow is triggered by push to main branch.
+# It gets the latest version from Git tags and triggers the release workflow.
+#
+# Similar to version-monitor.yml but:
+# - Does NOT check for missing versions from Azure Blob
+# - Directly gets the latest version from Git tags
+# - Triggers release workflow for testing purposes
+# ------------------------------------------------------------------------------
+
+name: Latest Version Trigger
+
+on:
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not trigger release workflow)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  get-latest-version:
+    name: Get Latest Version
+    runs-on: ubuntu-latest
+    outputs:
+      latest_version: ${{ steps.get-version.outputs.latest_version }}
+      should_trigger: ${{ steps.check.outputs.should_trigger }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Fetch all history to get all tags
+
+      - name: Get latest version from Git tags
+        id: get-version
+        run: |
+          echo "Fetching all v* tags from Git..."
+
+          # Get latest v* tag (sorted by version, not by date)
+          LATEST_VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
+
+          echo "Latest version: $LATEST_VERSION"
+
+          # Validate version format
+          if [[ ! "$LATEST_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format: $LATEST_VERSION"
+            echo "Expected format: v1.2.3"
+            exit 1
+          fi
+
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_VERSION: ${{ steps.get-version.outputs.latest_version }}
+        run: |
+          if gh release view "$LATEST_VERSION" >/dev/null 2>&1; then
+            echo "Release $LATEST_VERSION already exists"
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release $LATEST_VERSION does not exist yet"
+            echo "should_trigger=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for dry run
+        id: dry-run-check
+        if: steps.check.outputs.should_trigger == 'true'
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          echo "Dry run: $DRY_RUN"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN MODE - Will not trigger release workflow"
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
+          else
+            echo "EXECUTION MODE - Will trigger release workflow"
+            echo "should_trigger=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Output results
+        run: |
+          echo "=== Latest Version Trigger Results ==="
+          echo "Latest version: ${{ steps.get-version.outputs.latest_version }}"
+          echo "Should trigger: ${{ steps.dry-run-check.outputs.should_trigger }}"
+          echo "======================================"
+
+  trigger-release-workflow:
+    name: Trigger Release Workflow
+    needs: get-latest-version
+    # Only trigger if should_trigger is true
+    if: needs.get-latest-version.outputs.should_trigger == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Trigger GitHub Release Workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.get-latest-version.outputs.latest_version }}
+        run: |
+          echo "Triggering github-release-workflow.yml..."
+          gh workflow run github-release-workflow.yml \
+            -f client_payload="{\"version\":\"$VERSION\"}"
+
+      - name: Trigger Docker Build and Azure Publish Workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.get-latest-version.outputs.latest_version }}
+        run: |
+          echo "Triggering docker-build-azure-publish.yml..."
+          gh workflow run docker-build-azure-publish.yml \
+            -f version="$VERSION" \
+            -f test_mode="true"
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'post'
+          title: '触发生成 🚀'
+          message: |
+            **触发方式**: main 分支推送
+            **最新版本**: ${{ needs.get-latest-version.outputs.latest_version }}
+            **状态**: ${{ job.status == 'success' && '已触发发布工作流' || '触发失败' }}
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
+
+            **触发的工作流**:
+            ${{ job.status == 'success' && '• GitHub Release 工作流' || '' }}
+            ${{ job.status == 'success' && '• Docker Build Azure 工作流 (测试模式)' || '' }}
+
+            **说明**:
+            此版本将在测试模式下构建，不会触发下游发布（Docker Hub、Aliyun ACR）。
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            • Latest Version: ${{ needs.get-latest-version.outputs.latest_version }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
