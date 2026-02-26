@@ -25,6 +25,50 @@ partial class Build
     {
         Log.Information("Starting Version Monitor");
 
+        // If ListOnly mode, just output the versions without triggering releases
+        if (ListOnly)
+        {
+            Log.Information("List-only mode enabled - will not trigger releases");
+
+            var adapter = new AzureBlobAdapter();
+
+            // Download index from Azure
+            Log.Information("Downloading index.json from Azure Blob Storage...");
+            var index = adapter.DownloadIndexJson(AzureBlobSasUrl);
+
+            if (index == null)
+            {
+                Log.Error("Failed to download index.json from Azure");
+                throw new Exception("Azure index download failed");
+            }
+
+            // Get all versions from Azure
+            var azureVersions = adapter.GetAllVersions(index);
+            Log.Information("Found {Count} versions in Azure: {Versions}",
+                azureVersions.Count,
+                string.Join(", ", azureVersions));
+
+            // Get GitHub releases
+            var githubReleases = GetGitHubReleases(EffectiveGitHubToken, EffectiveGitHubRepository);
+            Log.Information("Found {Count} releases on GitHub: {Releases}",
+                githubReleases.Count,
+                string.Join(", ", githubReleases));
+
+            // Find new versions
+            var newVersions = FindNewVersions(azureVersions, githubReleases);
+            Log.Information("Found {Count} new versions to release: {Versions}",
+                newVersions.Count,
+                string.Join(", ", newVersions));
+
+            // Output to GITHUB_ENV for use in workflow
+            SetGitHubOutput("has_new_versions", newVersions.Count > 0 ? "true" : "false");
+            SetGitHubOutput("new_versions", string.Join(", ", newVersions));
+
+            Log.Information("Version Monitor list-only mode completed");
+            return;
+        }
+
+        // Normal mode - download and trigger releases
         var adapter = new AzureBlobAdapter();
 
         // Download index from Azure
