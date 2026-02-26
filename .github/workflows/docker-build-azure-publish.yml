@@ -1,0 +1,269 @@
+# ------------------------------------------------------------------------------
+# Docker Build and Azure Publish Workflow
+#
+# This workflow builds multi-architecture Docker images and pushes them to Azure ACR.
+# It is triggered on Git tag push (v*) for release builds.
+#
+# IMPORTANT: This workflow does NOT create GitHub Releases.
+# - GitHub Release creation is handled by github-release-workflow.yml
+# - This workflow is completely independent of Release creation
+# - Docker builds can run without Release, and Release can run without Docker builds
+#
+# After successful Azure push, this workflow triggers downstream workflows:
+# - docker-hub-publish.yml: Syncs images from Azure to Docker Hub
+# - aliyun-publish.yml: Syncs images from Azure to Aliyun ACR
+# ------------------------------------------------------------------------------
+
+name: Docker Build and Azure Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+    branches:
+      - 'main'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.0.0 or v1.0.0)'
+        required: false
+        type: string
+        default: ''
+      test_mode:
+        description: 'Test mode (pushes with test- prefix, no downstream triggers)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push-azure:
+    name: Build and Push to Azure ACR
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 'Cache: .nuke/temp, ~/.nuget/packages'
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nuke/temp
+            ~/.nuget/packages
+          key: ${{ runner.os }}-${{ hashFiles('**/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Azure ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.AZURE_ACR_REGISTRY }}
+          username: ${{ secrets.AZURE_ACR_USERNAME }}
+          password: ${{ secrets.AZURE_ACR_PASSWORD }}
+
+      - name: Extract version from tag, main branch, or input
+        id: version
+        run: |
+          TEST_MODE="${{ github.event.inputs.test_mode || 'false' }}"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              echo "No version provided, getting latest release from Git tags"
+              # Get latest v* tag
+              VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
+            fi
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Check if this is a tag push
+            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              VERSION="${GITHUB_REF#refs/tags/}"
+            else
+              # This is a main branch push - get latest version from version-monitor data
+              echo "Main branch push detected - checking version-monitor for latest version"
+              # Try to get version from version monitor output or fallback to latest tag
+              VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
+              # For main branch, we append a timestamp to make it unique for testing
+              TIMESTAMP=$(date +%Y%m%d%H%M%S)
+              VERSION="${VERSION}-test-${TIMESTAMP}"
+            fi
+          fi
+
+          # Add test prefix if in test mode
+          if [ "$TEST_MODE" = "true" ] || [[ "$VERSION" == *-test-* ]]; then
+            # Ensure test prefix for easier identification
+            if [[ ! "$VERSION" == test-* ]]; then
+              VERSION="test-${VERSION}"
+            fi
+            IS_TEST_BUILD="true"
+          else
+            IS_TEST_BUILD="false"
+          fi
+
+          # Normalize version - ensure it has 'v' prefix
+          if [[ ! "$VERSION" =~ ^v ]] && [[ ! "$VERSION" == test-* ]]; then
+            VERSION="v$VERSION"
+          fi
+
+          echo "Using version: $VERSION"
+          echo "Test mode: $IS_TEST_BUILD"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_test_build=$IS_TEST_BUILD" >> $GITHUB_OUTPUT
+
+      - name: 'Run: Release (build and push to Azure only)'
+        run: ./build.sh Release
+        env:
+          Platform: all
+          ReleaseVersion: ${{ steps.version.outputs.version }}
+          BuildAllChannels: false
+          IsExplicitDispatch: false
+          PushToRegistry: true
+          AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          # Only Azure credentials - other registries will sync from Azure
+          AzureAcrUsername: ${{ secrets.AZURE_ACR_USERNAME }}
+          AzureAcrPassword: ${{ secrets.AZURE_ACR_PASSWORD }}
+          AzureAcrRegistry: ${{ secrets.AZURE_ACR_REGISTRY }}
+          # Not pushing directly to other registries - they sync from Azure
+          DockerUsername: ""
+          DockerPassword: ""
+          AliyunAcrUsername: ""
+          AliyunAcrPassword: ""
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Azure ACR image availability
+        id: verify-azure
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          AZURE_ACR_REGISTRY: ${{ secrets.AZURE_ACR_REGISTRY }}
+          DOCKER_IMAGE_NAME: hagicode/hagicode-server
+        run: |
+          IMAGE_TAG="${AZURE_ACR_REGISTRY}/${DOCKER_IMAGE_NAME}:${VERSION}"
+          echo "Verifying image availability: $IMAGE_TAG"
+
+          # Verification with retry mechanism
+          MAX_RETRIES=5
+          RETRY_DELAY=10  # seconds
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Attempt $RETRY_COUNT/$MAX_RETRIES"
+
+            # Use docker manifest inspect to check if image exists
+            if docker manifest inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+              echo "✓ Image verified in Azure ACR: $IMAGE_TAG"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Image not yet available, retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+                RETRY_DELAY=$((RETRY_DELAY * 2))  # Exponential backoff
+              else
+                echo "✗ Image NOT found in Azure ACR after $MAX_RETRIES attempts: $IMAGE_TAG"
+                echo "verified=false" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+            fi
+          done
+
+      - name: 'Publish: download'
+        uses: actions/upload-artifact@v5
+        with:
+          name: download
+          path: output/download
+
+      - name: 'Publish: docker-image-built.txt'
+        uses: actions/upload-artifact@v5
+        with:
+          name: docker-image-built.txt
+          path: output/docker-image-built.txt
+
+  trigger-downstream:
+    name: Trigger Downstream Publish
+    needs: [build-and-push-azure]
+    # Only trigger downstream workflows for production builds (not test builds)
+    if: success() && needs.build-and-push-azure.outputs.is_test_build == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Trigger Docker Hub Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering docker-hub-publish.yml workflow..."
+          gh workflow run docker-hub-publish.yml \
+            -f version="${{ needs.build-and-push-azure.outputs.version }}" \
+            -f source_registry="${{ secrets.AZURE_ACR_REGISTRY }}" \
+            -f trigger_event=azure_publish_success
+
+      - name: Trigger Aliyun ACR Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering aliyun-publish.yml workflow..."
+          gh workflow run aliyun-publish.yml \
+            -f version="${{ needs.build-and-push-azure.outputs.version }}" \
+            -f source_registry="${{ secrets.AZURE_ACR_REGISTRY }}" \
+            -f trigger_event=azure_publish_success
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: Azure Docker Build ${{ job.status == 'success' && '发布成功 ✅' || '发布失败 ❌' }}
+          message: |
+            **版本**: ${{ needs.build-and-push-azure.outputs.version }}
+            **状态**: ${{ job.status == 'success' && 'Docker 镜像已推送至 Azure ACR' || 'Docker 构建失败' }}
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
+
+            **下游发布**:
+            ${{ job.status == 'success' && '• 已触发 Docker Hub 发布' || '' }}
+            ${{ job.status == 'success' && '• 已触发阿里云 ACR 发布' || '' }}
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+
+  # Test mode notification - doesn't trigger downstream workflows
+  test-mode-notification:
+    name: Test Mode Notification
+    needs: [build-and-push-azure]
+    # Only run for test builds
+    if: success() && needs.build-and-push-azure.outputs.is_test_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        with:
+          msg_type: 'interactive'
+          title: '测试发布完成 🧪'
+          message: |
+            **版本**: ${{ needs.build-and-push-azure.outputs.version }}
+            **模式**: 测试模式 (不触发下游发布)
+            **状态**: Docker 镜像已推送至 Azure ACR
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
+
+            **说明**:
+            这是测试版本，不会触发 Docker Hub 和 Aliyun ACR 的同步。
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

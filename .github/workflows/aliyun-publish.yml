@@ -1,0 +1,198 @@
+# ------------------------------------------------------------------------------
+# Aliyun ACR Publish Workflow
+#
+# This workflow syncs multi-architecture Docker images from Azure ACR to Aliyun ACR.
+# It is triggered by docker-build-azure-publish.yml after successful Azure push.
+#
+# This workflow runs independently and in parallel with docker-hub-publish.yml.
+# Failure in this workflow does not affect other workflows.
+# ------------------------------------------------------------------------------
+
+name: Aliyun ACR Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.0.0)'
+        required: true
+        type: string
+      source_registry:
+        description: 'Source registry (default: Azure ACR)'
+        required: false
+        type: string
+        default: ''
+      trigger_event:
+        description: 'Trigger event identifier'
+        required: false
+        type: string
+        default: 'manual_dispatch'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  sync-to-aliyun:
+    name: Sync from Azure to Aliyun ACR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Azure ACR (source)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ github.event.inputs.source_registry || secrets.AZURE_ACR_REGISTRY }}
+          username: ${{ secrets.AZURE_ACR_USERNAME }}
+          password: ${{ secrets.AZURE_ACR_PASSWORD }}
+
+      - name: Login to Aliyun ACR (target)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Extract version and source registry
+        id: params
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          SOURCE_REGISTRY="${{ github.event.inputs.source_registry || secrets.AZURE_ACR_REGISTRY }}"
+          TRIGGER_EVENT="${{ github.event.inputs.trigger_event }}"
+
+          echo "Version: $VERSION"
+          echo "Source registry: $SOURCE_REGISTRY"
+          echo "Trigger event: $TRIGGER_EVENT"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "source_registry=$SOURCE_REGISTRY" >> $GITHUB_OUTPUT
+          echo "trigger_event=$TRIGGER_EVENT" >> $GITHUB_OUTPUT
+
+      - name: Sync images from Azure to Aliyun ACR
+        id: sync
+        env:
+          VERSION: ${{ steps.params.outputs.version }}
+          SOURCE_REGISTRY: ${{ steps.params.outputs.source_registry }}
+          TARGET_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          DOCKER_IMAGE_NAME: hagicode/hagicode-server
+        run: |
+          set -e
+
+          echo "=== Syncing multi-architecture images ==="
+          echo "Source: ${SOURCE_REGISTRY}/${DOCKER_IMAGE_NAME}:${VERSION}"
+          echo "Target: ${TARGET_REGISTRY}/${DOCKER_IMAGE_NAME}:${VERSION}"
+
+          # Get image tags to sync (full version, minor, major, latest)
+          TAGS=("$VERSION" "${VERSION#v}" "${VERSION%.*}" "${VERSION%.*.*}")
+
+          # Add 'latest' tag if not a pre-release
+          if [[ ! "$VERSION" =~ [\-|+] ]]; then
+            TAGS+=("latest")
+          fi
+
+          echo "Tags to sync: ${TAGS[*]}"
+
+          # Sync each tag using docker buildx imagetools
+          for TAG_SUFFIX in "${TAGS[@]}"; do
+            SOURCE_TAG="${SOURCE_REGISTRY}/${DOCKER_IMAGE_NAME}:${TAG_SUFFIX}"
+            TARGET_TAG="${TARGET_REGISTRY}/${DOCKER_IMAGE_NAME}:${TAG_SUFFIX}"
+
+            echo "Syncing: ${SOURCE_TAG} -> ${TARGET_TAG}"
+
+            # Use buildx imagetools to create and push multi-arch manifest
+            # This pulls from Azure and pushes to Aliyun ACR
+            docker buildx imagetools create \
+              --tag "${TARGET_TAG}" \
+              "${SOURCE_TAG}"
+
+            if [ $? -eq 0 ]; then
+              echo "✓ Synced: ${TARGET_TAG}"
+            else
+              echo "✗ Failed to sync: ${TARGET_TAG}"
+              exit 1
+            fi
+          done
+
+          echo "=== Syncing base image ==="
+          SOURCE_BASE="${SOURCE_REGISTRY}/${DOCKER_IMAGE_NAME}:base"
+          TARGET_BASE="${TARGET_REGISTRY}/${DOCKER_IMAGE_NAME}:base"
+
+          docker buildx imagetools create \
+            --tag "${TARGET_BASE}" \
+            "${SOURCE_BASE}"
+
+          if [ $? -eq 0 ]; then
+            echo "✓ Synced base image: ${TARGET_BASE}"
+          else
+            echo "✗ Failed to sync base image"
+            exit 1
+          fi
+
+          echo "=== All images synced successfully ==="
+
+      - name: Verify Aliyun ACR image availability
+        id: verify-aliyun
+        env:
+          VERSION: ${{ steps.params.outputs.version }}
+          TARGET_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          DOCKER_IMAGE_NAME: hagicode/hagicode-server
+        run: |
+          IMAGE_TAG="${TARGET_REGISTRY}/${DOCKER_IMAGE_NAME}:${VERSION}"
+          echo "Verifying image availability: $IMAGE_TAG"
+
+          # Use docker manifest inspect to check if image exists
+          if docker manifest inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "✓ Image verified in Aliyun ACR: $IMAGE_TAG"
+            echo "verified=true" >> $GITHUB_OUTPUT
+
+            # Verify multi-architecture support
+            MANIFEST=$(docker manifest inspect "$IMAGE_TAG")
+            echo "Manifest: $MANIFEST"
+
+            # Check for multiple architectures
+            ARCH_COUNT=$(echo "$MANIFEST" | grep -o '"architecture"' | wc -l)
+            echo "Architecture count: $ARCH_COUNT"
+
+            if [ "$ARCH_COUNT" -ge 2 ]; then
+              echo "✓ Multi-architecture manifest verified"
+              echo "multi_arch=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠ Warning: Multi-architecture manifest not found"
+              echo "multi_arch=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "✗ Image NOT found in Aliyun ACR: $IMAGE_TAG"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            echo "multi_arch=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: Aliyun ACR Publish ${{ job.status == 'success' && '成功 ✅' || '失败 ❌' }}
+          message: |
+            **版本**: ${{ steps.params.outputs.version }}
+            **状态**: ${{ job.status == 'success' && '镜像已同步至阿里云 ACR' || '同步失败' }}
+            **触发者**: ${{ github.actor }}
+            **触发事件**: ${{ steps.params.outputs.trigger_event }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
+
+            **验证结果**:
+            ${{ steps.verify-aliyun.outputs.verified == 'true' && format('• 镜像验证: ✓ 成功', '') }}
+            ${{ steps.verify-aliyun.outputs.multi_arch == 'true' && '• 多架构支持: ✓ 是', '' }}
+
+            **链接**:
+            • Aliyun ACR: https://cr.console.aliyun.com/
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

@@ -1,0 +1,101 @@
+# ------------------------------------------------------------------------------
+# GitHub Release Workflow
+#
+# This workflow creates GitHub Releases independently of Docker builds.
+# It is triggered by version-monitor.yml discovering new versions.
+#
+# IMPORTANT: This workflow is completely decoupled from Docker build workflows.
+# - It can run independently without any Docker builds
+# - Docker builds do not depend on this workflow
+# - Failed Release creation does not affect Docker builds
+# ------------------------------------------------------------------------------
+
+name: GitHub Release Workflow
+
+on:
+  repository_dispatch:
+    types: [version-monitor-release]
+
+permissions:
+  contents: write  # Required for creating GitHub Releases
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check-release.outputs.version }}
+      release_url: ${{ steps.create-release.outputs.release_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Extract version from event payload
+        id: extract-version
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if Release already exists
+        id: check-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.extract-version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, skipping creation"
+            echo "should_create=false" >> $GITHUB_OUTPUT
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Release $VERSION does not exist, will create"
+            echo "should_create=true" >> $GITHUB_OUTPUT
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        id: create-release
+        if: steps.check-release.outputs.should_create == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.extract-version.outputs.version }}
+        run: |
+          echo "Creating release $VERSION..."
+          gh release create "$VERSION" \
+            --title "Release $VERSION" \
+            --notes "Automated release from CI/CD pipeline." \
+            --generate-notes
+
+          RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${VERSION}"
+          echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
+          echo "Release created: $RELEASE_URL"
+
+      - name: Release already exists - output info
+        id: existing-release
+        if: steps.check-release.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.extract-version.outputs.version }}
+        run: |
+          RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${VERSION}"
+          echo "Existing release URL: $RELEASE_URL"
+          echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: GitHub Release ${{ steps.check-release.outputs.exists == 'true' && '已存在 ⏭️' || '创建成功 ✅' }}
+          message: |
+            **版本**: ${{ steps.extract-version.outputs.version }}
+            **状态**: ${{ steps.check-release.outputs.exists == 'true' && 'Release 已存在，跳过创建' || 'Release 创建成功' }}
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.head_commit.timestamp }}
+
+            **链接**:
+            • Release: ${{ steps.create-release.outputs.release_url || steps.existing-release.outputs.release_url }}
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
