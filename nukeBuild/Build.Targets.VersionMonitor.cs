@@ -11,8 +11,8 @@ using System.Text.Json;
 ///
 /// Dispatch Verification:
 /// - After triggering a repository_dispatch event, this target queries the GitHub Actions API
-/// - Confirms that the dispatch successfully created a workflow run
-/// - Provides a workflow run URL for tracking the release progress
+/// - Confirms that dispatch successfully created a workflow run
+/// - Provides a workflow run URL for tracking release progress
 /// - This catches authentication/permission issues early and provides actionable feedback
 /// </summary>
 partial class Build
@@ -25,16 +25,23 @@ partial class Build
     {
         Log.Information("Starting Version Monitor");
 
-        // If ListOnly mode, just output the versions without triggering releases
+        // Declare variables at method scope to avoid CS0136 errors
+        AzureBlobAdapter adapter;
+        string index;
+        List<string> azureVersions;
+        List<string> githubReleases;
+        List<string> newVersions;
+
+        // If ListOnly mode, just output versions without triggering releases
         if (ListOnly)
         {
             Log.Information("List-only mode enabled - will not trigger releases");
 
-            var adapter = new AzureBlobAdapter();
+            adapter = new AzureBlobAdapter();
 
             // Download index from Azure
             Log.Information("Downloading index.json from Azure Blob Storage...");
-            var index = adapter.DownloadIndexJson(AzureBlobSasUrl);
+            index = adapter.DownloadIndexJson(AzureBlobSasUrl);
 
             if (index == null)
             {
@@ -43,19 +50,19 @@ partial class Build
             }
 
             // Get all versions from Azure
-            var azureVersions = adapter.GetAllVersions(index);
+            azureVersions = adapter.GetAllVersions(index);
             Log.Information("Found {Count} versions in Azure: {Versions}",
                 azureVersions.Count,
                 string.Join(", ", azureVersions));
 
             // Get GitHub releases
-            var githubReleases = GetGitHubReleases(EffectiveGitHubToken, EffectiveGitHubRepository);
+            githubReleases = GetGitHubReleases(EffectiveGitHubToken, EffectiveGitHubRepository);
             Log.Information("Found {Count} releases on GitHub: {Releases}",
                 githubReleases.Count,
                 string.Join(", ", githubReleases));
 
             // Find new versions
-            var newVersions = FindNewVersions(azureVersions, githubReleases);
+            newVersions = FindNewVersions(azureVersions, githubReleases);
             Log.Information("Found {Count} new versions to release: {Versions}",
                 newVersions.Count,
                 string.Join(", ", newVersions));
@@ -69,11 +76,11 @@ partial class Build
         }
 
         // Normal mode - download and trigger releases
-        var adapter = new AzureBlobAdapter();
+        adapter = new AzureBlobAdapter();
 
         // Download index from Azure
         Log.Information("Downloading index.json from Azure Blob Storage...");
-        var index = adapter.DownloadIndexJson(AzureBlobSasUrl);
+        index = adapter.DownloadIndexJson(AzureBlobSasUrl);
 
         if (index == null)
         {
@@ -82,19 +89,19 @@ partial class Build
         }
 
         // Get all versions from Azure
-        var azureVersions = adapter.GetAllVersions(index);
+        azureVersions = adapter.GetAllVersions(index);
         Log.Information("Found {Count} versions in Azure: {Versions}",
             azureVersions.Count,
             string.Join(", ", azureVersions));
 
         // Get GitHub releases
-        var githubReleases = GetGitHubReleases(EffectiveGitHubToken, EffectiveGitHubRepository);
+        githubReleases = GetGitHubReleases(EffectiveGitHubToken, EffectiveGitHubRepository);
         Log.Information("Found {Count} releases on GitHub: {Releases}",
             githubReleases.Count,
             string.Join(", ", githubReleases));
 
         // Find new versions
-        var newVersions = FindNewVersions(azureVersions, githubReleases);
+        newVersions = FindNewVersions(azureVersions, githubReleases);
 
         if (newVersions.Count == 0)
         {
@@ -146,7 +153,7 @@ partial class Build
                 }
             };
 
-            // Log the command for debugging
+            // Log command for debugging
             var commandArgs = string.Join(" ", "release", "list", "--json", "tagName", "--jq", ".[].tagName");
             Log.Debug("Executing gh command: gh {Args}", commandArgs);
 
@@ -219,7 +226,7 @@ partial class Build
 
         try
         {
-            // Build the complete request body as JSON
+            // Build complete request body as JSON
             var requestBody = JsonSerializer.Serialize(new
             {
                 event_type = "version-monitor-release",
@@ -258,7 +265,7 @@ partial class Build
                 throw new Exception("Failed to start gh process");
             }
 
-            // Write the JSON body to stdin
+            // Write JSON body to stdin
             process.StandardInput.Write(requestBody);
             process.StandardInput.Close();
 
@@ -273,7 +280,7 @@ partial class Build
 
             Log.Information("Successfully triggered release workflow for version {Version}", version);
 
-            // Verify the dispatch created a workflow run
+            // Verify dispatch created a workflow run
             VerifyDispatchCreated(version, repository);
         }
         catch (Exception ex)
@@ -285,7 +292,7 @@ partial class Build
 
     /// <summary>
     /// Verifies that a repository_dispatch event successfully created a workflow run.
-    /// Queries the GitHub Actions API to find a matching run within the last 60 seconds.
+    /// Queries GitHub Actions API to find a matching run within last 60 seconds.
     /// </summary>
     /// <param name="version">The version that was dispatched</param>
     /// <param name="repository">The GitHub repository (owner/repo)</param>
@@ -301,8 +308,8 @@ partial class Build
         {
             try
             {
-                // Query for recent workflow runs for the hagicode-server-publish workflow
-                // Filter by workflow name to get only the release workflow runs
+                // Query for recent workflow runs for hagicode-server-publish workflow
+                // Filter by workflow name to get only release workflow runs
                 var processInfo = new ProcessStartInfo
                 {
                     FileName = "gh",
