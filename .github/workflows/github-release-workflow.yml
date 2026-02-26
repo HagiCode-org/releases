@@ -92,7 +92,7 @@ jobs:
             **版本**: ${{ steps.extract-version.outputs.version }}
             **状态**: ${{ steps.check-release.outputs.exists == 'true' && 'Release 已存在，跳过创建' || 'Release 创建成功' }}
             **触发者**: ${{ github.actor }}
-            **时间**: ${{ github.event.head_commit.timestamp }}
+            **时间**: ${{ github.event.repository.updated_at }}
 
             **链接**:
             • Release: ${{ steps.create-release.outputs.release_url || steps.existing-release.outputs.release_url }}

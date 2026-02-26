@@ -78,7 +78,7 @@ jobs:
           message: |
             **状态**: ${{ job.status == 'failure' && '监控失败' || '发现新版本' }}
             **仓库**: ${{ github.repository }}
-            **时间**: ${{ github.event.head_commit.timestamp }}
+            **时间**: ${{ github.event.repository.updated_at }}
 
             **详情**:
             ${{ job.status == 'failure' && '监控过程中发生错误，请检查日志' || format('新版本: {0}', steps.version-monitor.outputs.new_versions) }}

@@ -66,6 +66,7 @@ jobs:
             else
               UNRELEASED_VERSIONS="$UNRELEASED_VERSIONS,$TAG"
               echo "  Tag $TAG not released (unreleased)"
+            fi
           done
 
           # Remove leading comma if any
@@ -86,11 +87,13 @@ jobs:
           else
             echo "No unreleased versions found"
             echo "latest_unreleased=" >> $GITHUB_OUTPUT
+          fi
 
           if [ -n "$LATEST_UNRELEASED" ]; then
             echo "should_trigger=true" >> $GITHUB_OUTPUT
           else
             echo "should_trigger=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check for dry run
         id: dry-run-check
@@ -105,6 +108,7 @@ jobs:
           else
             echo "EXECUTION MODE - Will trigger release workflow"
             echo "should_trigger=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Output results
         run: |
