@@ -207,9 +207,11 @@ jobs:
           IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
           for version in "${VERSION_ARRAY[@]}"; do
             echo "Verifying ${{ env.TARGET_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}..."
+            # Use basic auth for verification
             RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
               "https://${{ env.TARGET_REGISTRY }}/v2/${{ env.IMAGE_NAME }}/manifests/${version}" \
-              -H "Accept: application/vnd.docker.distribution.manifest.v2+json")
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+              -u "${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}")
 
             if [ "$RESULT" == "200" ]; then
               echo "✓ ${{ env.IMAGE_NAME }}:${version} synced successfully"
