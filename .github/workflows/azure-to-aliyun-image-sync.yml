@@ -200,24 +200,19 @@ jobs:
           TARGET_REGISTRY="${{ env.TARGET_REGISTRY }}"
           VERSIONS="${{ steps.parse-images.outputs.image_versions }}"
 
-          # Create config.yaml
-          cat > config.yaml << EOF
-registry:
-            # Source registry - Azure ACR
-            ${SOURCE_REGISTRY}:
-              auth: "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}"
-            # Target registry - Aliyun ACR
-            ${TARGET_REGISTRY}:
-              auth: "${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}"
+          # Create config.yaml using echo commands to avoid heredoc issues
+          echo "registry:" > config.yaml
+          echo "  ${SOURCE_REGISTRY}:" >> config.yaml
+          echo "    auth: \"${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}\"" >> config.yaml
+          echo "  ${TARGET_REGISTRY}:" >> config.yaml
+          echo "    auth: \"${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}\"" >> config.yaml
+          echo "" >> config.yaml
+          echo "images:" >> config.yaml
 
-images:
-$(
-            IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
-            for version in "${VERSION_ARRAY[@]}"; do
-              echo "  ${SOURCE_REGISTRY}/hagicode:${version}: ${TARGET_REGISTRY}/hagicode:${version}"
-            done
-          )
-EOF
+          IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
+          for version in "${VERSION_ARRAY[@]}"; do
+            echo "  ${SOURCE_REGISTRY}/hagicode:${version}: ${TARGET_REGISTRY}/hagicode:${version}" >> config.yaml
+          done
 
           echo "Generated config.yaml:"
           cat config.yaml
@@ -282,25 +277,9 @@ EOF
           WEBHOOK_URL="${{ secrets.FEISHU_WEBHOOK_URL }}"
           if [ -n "$WEBHOOK_URL" ]; then
             echo "Sending failure notification..."
-            PAYLOAD=$(cat <<EOF
-            {
-              "msg_type": "interactive",
-              "card": {
-                "header": {
-                  "title": {"tag": "plain_text", "content": "⚠️ Image Sync Failed"},
-                  "template": "red"
-                },
-                "elements": [
-                  {
-                    "tag": "markdown",
-                    "content": "**Azure to Aliyun Image Sync Failed**\n\n**Version:** ${{ steps.fetch-publish-result.outputs.version }}\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  }
-                ]
-              }
-            }
-            EOF
-            )
-            curl -s -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK_URL"
+            curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"msg_type\":\"interactive\",\"card\":{\"header\":{\"title\":{\"tag\":\"plain_text\",\"content\":\"⚠️ Image Sync Failed\"},\"template\":\"red\"},\"elements\":[{\"tag\":\"markdown\",\"content\":\"**Azure to Aliyun Image Sync Failed**\\n\\n**Version:** ${{ steps.fetch-publish-result.outputs.version }}\\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}]}}" \
+              "$WEBHOOK_URL"
             echo "Notification sent!"
           else
             echo "FEISHU_WEBHOOK_URL not configured, skipping notification"
