@@ -185,7 +185,8 @@ jobs:
           echo "Starting image sync..."
           # Run image-syncer with error handling
           export PATH="$PATH:$(go env GOPATH)/bin"
-          if image-syncer --config config.yaml --transporter DAEMON --arch amd64,arm64 --threads 4 --timeout 600; then
+          # Use correct flags for image-syncer v1.5.5
+          if image-syncer --config config.yaml --arch amd64,arm64 --proc 4; then
             echo "sync_result=success" >> $GITHUB_OUTPUT
             echo "Image sync completed successfully!"
           else
