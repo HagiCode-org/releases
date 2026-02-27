@@ -116,7 +116,6 @@ jobs:
           go install github.com/AliyunContainerService/image-syncer@latest
           export PATH="$PATH:$(go env GOPATH)/bin"
           echo "image-syncer installed"
-          image-syncer --version
 
       - name: Generate image-syncer config
         id: config
