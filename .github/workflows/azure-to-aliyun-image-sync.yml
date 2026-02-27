@@ -1,0 +1,274 @@
+name: Azure to Aliyun Image Sync
+
+on:
+  # Trigger 1: Auto-trigger when docker-build.yml completes
+  workflow_run:
+    workflows: ["Docker Multi-Arch Build and Push to Edge ACR"]
+    types: [completed]
+    branches: [main]
+  # Trigger 2: Manual trigger
+  workflow_dispatch:
+    inputs:
+      sync_mode:
+        description: 'Sync mode'
+        required: false
+        type: choice
+        default: latest
+        options:
+          - latest
+          - specific
+      version:
+        description: 'Specific version to sync (required if sync_mode is specific)'
+        required: false
+        type: string
+
+env:
+  AZURE_ACR_REGISTRY: hagicode.azurecr.io
+  AZURE_ACR_USERNAME: ${{ secrets.AZURE_ACR_USERNAME }}
+  AZURE_ACR_PASSWORD: ${{ secrets.AZURE_ACR_PASSWORD }}
+  ALIYUN_ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  ALIYUN_ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
+  ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+  SOURCE_REGISTRY: hagicode.azurecr.io
+  TARGET_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  IMAGE_NAME: hagicode
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine sync mode and version
+        id: determine
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            # Get version from workflow_run event
+            # Try to extract version from the run metadata
+            WORKFLOW_RUN_ID=${{ github.event.workflow_run.id }}
+
+            # The docker-build workflow outputs version to GITHUB_OUTPUT
+            # We need to fetch it from the jobs
+            JOBS_JSON=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${WORKFLOW_RUN_ID}/jobs")
+
+            # Try to find the version from job outputs
+            VERSION=$(echo "$JOBS_JSON" | jq -r '.jobs[]?.steps[]? | select(.name | contains("Determine")) | .name' 2>/dev/null | \
+              grep -oP 'v?\d+\.\d+\.\d+' | head -1 || echo "")
+
+            # Fallback: use version from git tag if available
+            if [ -z "$VERSION" ]; then
+              VERSION=$(echo "$JOBS_JSON" | jq -r '.jobs[]?.conclusion' 2>/dev/null | head -1)
+              # Default to latest if no version found
+              VERSION="latest"
+            fi
+
+            echo "mode=specific" >> $GITHUB_OUTPUT
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "Sync mode: workflow_run (version: ${VERSION})"
+          else
+            # workflow_dispatch mode
+            SYNC_MODE="${{ github.event.inputs.sync_mode }}"
+            VERSION="${{ github.event.inputs.version }}"
+
+            # Default to latest if no version specified in specific mode
+            if [ "$SYNC_MODE" == "specific" ] && [ -z "$VERSION" ]; then
+              VERSION="latest"
+            fi
+
+            echo "mode=${SYNC_MODE}" >> $GITHUB_OUTPUT
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "Sync mode: workflow_dispatch (${SYNC_MODE}, version: ${VERSION})"
+          fi
+
+      - name: Display sync information
+        run: |
+          echo "=========================================="
+          echo "Azure to Aliyun Image Sync"
+          echo "=========================================="
+          echo "Sync Mode: ${{ steps.determine.outputs.mode }}"
+          echo "Version: ${{ steps.determine.outputs.version }}"
+          echo "Source Registry: ${{ env.SOURCE_REGISTRY }}"
+          echo "Target Registry: ${{ env.TARGET_REGISTRY }}"
+          echo "=========================================="
+
+      - name: Login to Azure ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SOURCE_REGISTRY }}
+          username: ${{ env.AZURE_ACR_USERNAME }}
+          password: ${{ env.AZURE_ACR_PASSWORD }}
+
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.TARGET_REGISTRY }}
+          username: ${{ env.ALIYUN_ACR_USERNAME }}
+          password: ${{ env.ALIYUN_ACR_PASSWORD }}
+
+      - name: Setup image-syncer
+        run: |
+          # Download and setup image-syncer
+          IMAGE_SYNCER_VERSION=$(curl -s https://api.github.com/repos/AliyunContainerService/image-syncer/releases/latest | jq -r '.tag_name // "v1.2.8"' | sed 's/^v//')
+          curl -sLo /tmp/image-syncer.tar.gz "https://github.com/AliyunContainerService/image-syncer/releases/download/v${IMAGE_SYNCER_VERSION}/image-syncer-${IMAGE_SYNCER_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/image-syncer.tar.gz -C /tmp
+          chmod +x /tmp/image-syncer
+          echo "image-syncer version: ${IMAGE_SYNCER_VERSION}"
+          /tmp/image-syncer --version
+
+      - name: Generate image-syncer config
+        id: config
+        run: |
+          # Generate dynamic version list based on sync mode
+          VERSIONS=""
+
+          if [ "${{ steps.determine.outputs.mode }}" == "specific" ]; then
+            # Sync specific version
+            VERSION="${{ steps.determine.outputs.version }}"
+            # Add v prefix if not present
+            if [[ ! "$VERSION" =~ ^v ]]; then
+              VERSION="v${VERSION}"
+            fi
+            VERSIONS="${VERSION}"
+          else
+            # latest mode: sync all version tags + latest + base
+            # Get all tags from Azure ACR
+            echo "Fetching tags from Azure ACR..."
+            TAGS=$(curl -s -u "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}" \
+              "https://${{ env.SOURCE_REGISTRY }}/v2/${IMAGE_NAME}/tags/list" | \
+              jq -r '.tags[]' 2>/dev/null || echo "")
+
+            echo "Available tags: $TAGS"
+
+            # Filter version tags (v*.*.*) and special tags
+            for tag in $TAGS; do
+              if [[ "$tag" == v*.*.* ]] || [[ "$tag" == "latest" ]] || [[ "$tag" == "base" ]]; then
+                VERSIONS="${VERSIONS}${VERSIONS:+,}${tag}"
+              fi
+            done
+          fi
+
+          # If no versions found, use latest as fallback
+          if [ -z "$VERSIONS" ]; then
+            VERSIONS="latest"
+          fi
+
+          echo "Versions to sync: $VERSIONS"
+          echo "versions=${VERSIONS}" >> $GITHUB_OUTPUT
+
+          # Create config.yaml
+          cat > config.yaml << EOF
+          registry:
+            # Source registry - Azure ACR
+            ${{ env.SOURCE_REGISTRY }}:
+              auth: "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}"
+            # Target registry - Aliyun ACR
+            ${{ env.TARGET_REGISTRY }}:
+              auth: "${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}"
+
+          images:
+          $(
+            IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
+            for version in "${VERSION_ARRAY[@]}"; do
+              echo "  - ${{ env.IMAGE_NAME }}:${version} => ${{ env.IMAGE_NAME }}:${version}"
+            done
+          )
+          EOF
+
+          echo "Generated config.yaml:"
+          cat config.yaml
+
+      - name: Sync images
+        id: sync
+        run: |
+          echo "Starting image sync..."
+          # Run image-syncer with error handling
+          if /tmp/image-syncer --config config.yaml --transporter DAEMON --arch amd64,arm64 --threads 4 --timeout 600; then
+            echo "sync_result=success" >> $GITHUB_OUTPUT
+            echo "Image sync completed successfully!"
+          else
+            echo "sync_result=failed" >> $GITHUB_OUTPUT
+            echo "Image sync failed!"
+            exit 1
+          fi
+
+      - name: Verify sync results
+        if: success()
+        run: |
+          # Verify images exist in Aliyun ACR
+          VERSIONS="${{ steps.config.outputs.versions }}"
+          FAILED=0
+          SUCCESS_COUNT=0
+
+          IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
+          for version in "${VERSION_ARRAY[@]}"; do
+            echo "Verifying ${{ env.TARGET_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}..."
+            RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://${{ env.TARGET_REGISTRY }}/v2/${{ env.IMAGE_NAME }}/manifests/${version}" \
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json")
+
+            if [ "$RESULT" == "200" ]; then
+              echo "✓ ${{ env.IMAGE_NAME }}:${version} synced successfully"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+              echo "✗ ${{ env.IMAGE_NAME }}:${version} verification failed (HTTP $RESULT)"
+              FAILED=1
+            fi
+          done
+
+          echo "=========================================="
+          echo "Verification Summary"
+          echo "=========================================="
+          echo "Total: ${#VERSION_ARRAY[@]}, Success: ${SUCCESS_COUNT}, Failed: ${FAILED}"
+
+          if [ $FAILED -eq 1 ]; then
+            echo "Some images failed to verify!"
+            exit 1
+          fi
+          echo "All images synced and verified successfully!"
+
+      - name: Success notification
+        if: success()
+        run: |
+          echo "=========================================="
+          echo "Image sync completed successfully!"
+          echo "=========================================="
+          echo "Mode: ${{ steps.determine.outputs.mode }}"
+          echo "Versions: ${{ steps.config.outputs.versions }}"
+          echo "=========================================="
+
+      - name: Failure notification
+        if: failure()
+        run: |
+          # Send failure notification to Feishu
+          WEBHOOK_URL="${{ secrets.FEISHU_WEBHOOK_URL }}"
+          if [ -n "$WEBHOOK_URL" ]; then
+            echo "Sending failure notification..."
+            PAYLOAD=$(cat <<EOF
+            {
+              "msg_type": "interactive",
+              "card": {
+                "header": {
+                  "title": {"tag": "plain_text", "content": "⚠️ Image Sync Failed"},
+                  "template": "red"
+                },
+                "elements": [
+                  {
+                    "tag": "markdown",
+                    "content": "**Azure to Aliyun Image Sync Failed**\n\n**Mode:** ${{ steps.determine.outputs.mode }}\n**Version:** ${{ steps.determine.outputs.version }}\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                ]
+              }
+            }
+            EOF
+            )
+            curl -s -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK_URL"
+            echo "Notification sent!"
+          else
+            echo "FEISHU_WEBHOOK_URL not configured, skipping notification"
+          fi
+          exit 1
