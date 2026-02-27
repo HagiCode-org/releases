@@ -52,7 +52,7 @@ jobs:
           gh issue create \
             --title "Version Monitor Failed - $(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
             --label "bug,automation" \
-            --body "Version Monitor workflow failed at $(date -u +'%Y-%m-%d %H:%M:%S UTC').
+            --body "Version Monitor workflow failed at $(date -u +'%Y-%m-%d %H:%M:%S UTC')."
 
           **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -62,33 +62,48 @@ jobs:
       - name: Send Feishu Notification
         id: feishu-notify
         uses: HagiCode-org/haginotifier@v1
-        # Run only if there are new versions OR if monitor failed OR if main branch was pushed
-        if: steps.version-monitor.outputs.has_new_versions == 'true' || failure() || github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # Run when:
+        # 1. There are new versions (monitor found new versions)
+        # 2. Monitor failed
+        # 3. Main branch was pushed (to trigger Docker build)
+        # 4. Docker build was triggered
+        if: steps.version-monitor.outputs.has_new_versions == 'true' || failure() || github.event_name == 'push' && github.ref == 'refs/heads/main' || steps.trigger-docker-build.outcome == 'success'
         with:
           msg_type: 'post'
-          title: ${{ github.event_name == 'push' && '✅ Main 分支更新' || (steps.version-monitor.outputs.has_new_versions == 'true' && '✨ 发现新版本' || '❌ Version Monitor 失败') }}
+          title: >-
+            {% if github.event_name == 'push' && github.ref == 'refs/heads/main' %}
+            ✅ Main 分支更新 - 触发 Docker 构建
+            {% elif steps.version-monitor.outputs.has_new_versions == 'true' %}
+            ✨ 发现新版本 - {{ steps.version-monitor.outputs.new_versions }}
+            {% elif steps.version-monitor.outputs.has_new_versions == 'true' == false && job.status == 'success' %}
+            ℹ️ 未发现新版本
+            {% elif steps.trigger-docker-build.outcome == 'success' %}
+            🐳 Docker 构建已触发
+            {% else %}
+            ❌ Version Monitor 失败
+            {% endif %}
           message: |
             {% if github.event_name == 'push' && github.ref == 'refs/heads/main' %}
-            **状态**: Main 分支更新
+            **事件**: Main 分支推送
             **分支**: ${{ github.ref_name }}
             **提交**: ${{ github.sha }}
             **仓库**: ${{ github.repository }}
             **时间**: ${{ github.event.repository.updated_at }}
+            **状态**: Docker 构建已触发
 
             {% if steps.version-monitor.outputs.has_new_versions == 'true' %}
             **监控结果**: 发现新版本
-            **版本**: ${{ steps.version-monitor.outputs.new_versions }}
+            **版本**: {{ steps.version-monitor.outputs.new_versions }}
             {% elif steps.version-monitor.outputs.has_new_versions == 'true' == false && job.status == 'success' %}
             **监控结果**: 未发现新版本
-            {% else %}
-            **监控结果**: 失败 - 请检查日志
-            {% endif %}
-
-            {% if job.status == 'failure' %}
-            **失败原因**: 工作流执行失败
+            {% elif steps.trigger-docker-build.outcome == 'success' %}
+            **Docker 构建**: 已通过工作流触发
+            {% elif job.status == 'failure' %}
+            **监控结果**: 失败
             {% endif %}
 
             **链接**:
             • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

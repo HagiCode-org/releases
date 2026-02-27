@@ -24,7 +24,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.extract-version.outputs.version }}
       release_url: ${{ steps.release.outputs.release_url }}
     steps:
       - name: Checkout repository
@@ -42,12 +42,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          NUGEX_ReleaseVersion: ${{ steps.extract-version.outputs.version }}
+          NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
         run: |
           ./build.sh GitHubRelease
-
-          # Output release URL from logs
-          # The GitHubRelease target will output the release URL
-          # We capture it from the log output
 
       - name: Send Feishu Notification
         id: feishu-notify

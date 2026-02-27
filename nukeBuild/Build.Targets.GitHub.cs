@@ -6,6 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 /// <summary>
 /// GitHub Release target - creates GitHub releases for version monitor dispatches
@@ -22,6 +25,7 @@ partial class Build
     readonly string ReleaseVersion = string.Empty;
 
     Target GitHubRelease => _ => _
+        .DependsOn(Download)
         .Executes(GitHubReleaseExecute);
 
     void GitHubReleaseExecute()
@@ -47,15 +51,41 @@ partial class Build
             throw new Exception("Release version is not specified");
         }
 
-        // Check if release already exists
-        if (ReleaseExists(token, repository, EffectiveReleaseVersion))
+        // Normalize version tag (ensure 'v' prefix)
+        var releaseTag = EffectiveReleaseVersion.StartsWith("v") ? EffectiveReleaseVersion : $"v{EffectiveReleaseVersion}";
+
+        // Check if release already exists and upload files, or create new release
+        if (ReleaseExists(token, repository, releaseTag))
         {
-            Log.Information("Release {Version} already exists, skipping creation", EffectiveReleaseVersion);
+            Log.Information("Release {Version} already exists, uploading files...", EffectiveReleaseVersion);
+            UploadExistingRelease(token, repository, releaseTag);
+        }
+        else
+        {
+            // Create the release
+            CreateGitHubRelease(token, repository, EffectiveReleaseVersion);
+        }
+    }
+
+    /// <summary>
+    /// Uploads packages to an existing GitHub release
+    /// </summary>
+    void UploadExistingRelease(string token, string repository, string releaseTag)
+    {
+        // Get the downloaded zip files
+        var zipFiles = DownloadedZipFiles;
+        Log.Information("Found {Count} zip files to upload: {Files}",
+            zipFiles.Count,
+            string.Join(", ", zipFiles.Select(f => System.IO.Path.GetFileName(f))));
+
+        if (zipFiles.Count == 0)
+        {
+            Log.Warning("No zip packages found to upload to release");
             return;
         }
 
-        // Create the release
-        CreateGitHubRelease(token, repository, EffectiveReleaseVersion);
+        UploadPackagesToRelease(token, repository, releaseTag, zipFiles);
+        Log.Information("Successfully updated release {ReleaseTag} with files", releaseTag);
     }
 
     /// <summary>
@@ -111,8 +141,8 @@ partial class Build
     void CreateGitHubRelease(string token, string repository, string version)
     {
         // Normalize version tag (ensure 'v' prefix)
-        var releaseTag = EffectiveReleaseVersion.StartsWith("v") ? EffectiveReleaseVersion : $"v{EffectiveReleaseVersion}";
-        var releaseTitle = $"Release {EffectiveReleaseVersion.TrimStart('v')}";
+        var releaseTag = version.StartsWith("v") ? version : $"v{version}";
+        var releaseTitle = $"Release {version.TrimStart('v')}";
 
         Log.Information("Creating GitHub release {ReleaseTag} for repository {Repository}",
             releaseTag, repository);
@@ -158,6 +188,20 @@ partial class Build
 
             Log.Information("GitHub Release {ReleaseTag} created successfully", releaseTag);
 
+            // Download packages from Azure Blob Storage
+            var zipFiles = DownloadedZipFiles;
+            Log.Information("Found {Count} zip files to upload: {Files}",
+                zipFiles.Count,
+                string.Join(", ", zipFiles.Select(f => System.IO.Path.GetFileName(f))));
+            if (zipFiles.Count == 0)
+            {
+                Log.Warning("No zip packages found to upload to release");
+            }
+            else
+            {
+                UploadPackagesToRelease(token, repository, releaseTag, zipFiles);
+            }
+
             // Extract release URL from output
             var releaseUrl = ExtractReleaseUrl(output);
             if (!string.IsNullOrEmpty(releaseUrl))
@@ -170,10 +214,65 @@ partial class Build
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to create GitHub release for version {Version}", EffectiveReleaseVersion);
-            SendFeishuNotification(EffectiveReleaseVersion, null, false, ex.Message);
+            Log.Error(ex, "Failed to create GitHub release for version {Version}", version);
+            SendFeishuNotification(version, null, false, ex.Message);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Uploads packages to an existing GitHub release
+    /// </summary>
+    void UploadPackagesToRelease(string token, string repository, string releaseTag, IReadOnlyCollection<AbsolutePath> zipFiles)
+    {
+        Log.Information("Uploading {Count} packages to release {ReleaseTag}", zipFiles.Count, releaseTag);
+
+        foreach (var zipFile in zipFiles)
+        {
+            var fileName = System.IO.Path.GetFileName(zipFile);
+            Log.Information("Uploading {FileName}...", fileName);
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "gh",
+                ArgumentList =
+                {
+                    "release",
+                    "upload",
+                    releaseTag,
+                    zipFile,
+                    "--repo", repository,
+                    "--clobber"
+                },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                Environment =
+                {
+                    ["GH_TOKEN"] = token
+                }
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process == null)
+            {
+                throw new Exception($"Failed to start gh upload process for {fileName}");
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"Failed to upload {fileName} to release: {error}");
+            }
+
+            Log.Information("Uploaded {FileName} successfully", fileName);
+        }
+
+        Log.Information("All packages uploaded successfully");
     }
 
     /// <summary>
@@ -210,7 +309,7 @@ partial class Build
     /// <summary>
     /// Sends a Feishu notification about the release status
     /// </summary>
-    void SendFeishuNotification(string version, string? releaseUrl, bool success, string? errorMessage = null)
+    async Task SendFeishuNotificationAsync(string version, string? releaseUrl, bool success, string? errorMessage = null)
     {
         if (string.IsNullOrEmpty(FeishuWebhookUrl))
         {
@@ -220,7 +319,7 @@ partial class Build
 
         try
         {
-            using var httpClient = new System.Net.Http.HttpClient();
+            using var httpClient = new HttpClient();
 
             var message = success
                 ? $"✅ GitHub Release created successfully!\n\n" +
@@ -240,11 +339,11 @@ partial class Build
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(payload);
-            var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             Log.Debug("Sending Feishu notification: {Message}", message);
 
-            var response = httpClient.PostAsync(FeishuWebhookUrl, content).GetAwaiter().GetResult();
+            var response = await httpClient.PostAsync(FeishuWebhookUrl, content);
 
             if (response.IsSuccessStatusCode)
             {
@@ -260,5 +359,13 @@ partial class Build
         {
             Log.Warning(ex, "Failed to send Feishu notification");
         }
+    }
+
+    /// <summary>
+    /// Sends a Feishu notification about the release status (sync wrapper)
+    /// </summary>
+    void SendFeishuNotification(string version, string? releaseUrl, bool success, string? errorMessage = null)
+    {
+        SendFeishuNotificationAsync(version, releaseUrl, success, errorMessage).GetAwaiter().GetResult();
     }
 }

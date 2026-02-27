@@ -31,6 +31,17 @@ partial class Build
     string BuildDate => DateTime.UtcNow.ToString("yyyy-MM-dd");
 
     /// <summary>
+    /// Gets the download directory path
+    /// </summary>
+    AbsolutePath DownloadDirectory => OutputDirectory / "download";
+
+    /// <summary>
+    /// Gets the list of downloaded zip files
+    /// </summary>
+    IReadOnlyCollection<AbsolutePath> DownloadedZipFiles =>
+        DownloadDirectory.GlobFiles("*.zip");
+
+    /// <summary>
     /// Gets the GitHub token from CI or parameter
     /// </summary>
     string EffectiveGitHubToken => GitHubActions?.Token ?? GitHubToken;

@@ -16,7 +16,10 @@ using System;
     {
         nameof(AzureBlobSasUrl),
         nameof(FeishuWebhookUrl),
-        nameof(GitHubToken)
+        nameof(GitHubToken),
+        nameof(AzureAcrUsername),
+        nameof(AzureAcrPassword),
+        nameof(AzureAcrRegistry)
     },
     EnableGitHubToken = false,
     AutoGenerate = false)]
@@ -54,18 +57,16 @@ partial class Build : Nuke.Common.NukeBuild
     readonly string ListOnly = string.Empty;
 
     /// <summary>
-    /// Gets the effective DryRun value (from parameter or environment variable)
+    /// Gets the effective DryRun value (from environment variable or parameter)
     /// </summary>
-    bool EffectiveDryRun => !string.IsNullOrEmpty(DryRun)
-        ? (Environment.GetEnvironmentVariable("NUGEX_DryRun")?.ToLower() == "true")
-        : DryRun.ToLower() == "true";
+    bool EffectiveDryRun => Environment.GetEnvironmentVariable("NUGEX_DryRun")?.ToLower() == "true" ||
+                         DryRun.ToLower() == "true";
 
     /// <summary>
-    /// Gets the effective ListOnly value (from parameter or environment variable)
+    /// Gets the effective ListOnly value (from environment variable or parameter)
     /// </summary>
-    bool EffectiveListOnly => !string.IsNullOrEmpty(ListOnly)
-        ? (Environment.GetEnvironmentVariable("NUGEX_ListOnly")?.ToLower() == "true")
-        : ListOnly.ToLower() == "true";
+    bool EffectiveListOnly => Environment.GetEnvironmentVariable("NUGEX_ListOnly")?.ToLower() == "true" ||
+                            ListOnly.ToLower() == "true";
 
     [Parameter("Feishu webhook URL for notifications")]
     [Secret]
@@ -75,11 +76,9 @@ partial class Build : Nuke.Common.NukeBuild
     AbsolutePath OutputDirectory = RootDirectory / "output";
 
     /// <summary>
-    /// Gets the effective ReleaseVersion value (from parameter or environment variable)
+    /// Gets the effective ReleaseVersion value (from environment variable or parameter)
     /// </summary>
-    string EffectiveReleaseVersion => !string.IsNullOrEmpty(ReleaseVersion)
-        ? Environment.GetEnvironmentVariable("NUGEX_ReleaseVersion") ?? string.Empty
-        : ReleaseVersion;
+    string EffectiveReleaseVersion => Environment.GetEnvironmentVariable("NUGEX_ReleaseVersion") ?? ReleaseVersion;
 
     // ==========================================================================
     // Dependencies
@@ -105,6 +104,7 @@ partial class Build : Nuke.Common.NukeBuild
     // Target declarations are split across multiple partial class files:
     // - Build.Targets.VersionMonitor.cs : Monitors Azure Blob Storage for new versions
     // - Build.Targets.GitHub.cs       : Creates GitHub releases
+    // - Build.Targets.Docker.cs       : Builds and publishes Docker images
     //
     // Each partial class file contains both the Target declaration and its
     // execution logic in separate methods for better organization.

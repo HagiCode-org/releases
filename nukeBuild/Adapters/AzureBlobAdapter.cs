@@ -422,7 +422,7 @@ namespace NukeBuild.Adapters
                     Log.Warning("Download attempt {Attempt} failed: {Message}. Retrying in {Delay}ms...",
                         attempt, ex.Message, RetryDelayMilliseconds);
 
-                    Task.Delay(RetryDelayMilliseconds).Wait();
+                    Thread.Sleep(RetryDelayMilliseconds);
                 }
             }
 
