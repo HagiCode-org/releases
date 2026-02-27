@@ -176,7 +176,7 @@ jobs:
           echo "image_versions=${VERSIONS}" >> $GITHUB_OUTPUT
           echo "Versions to sync: ${VERSIONS}"
 
-      - name: Fallback: Fetch tags from Azure ACR
+      - name: Fallback Fetch tags from Azure ACR
         id: fallback-tags
         if: steps.sync-method.outputs.sync_method == 'fallback'
         run: |
