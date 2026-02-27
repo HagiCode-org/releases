@@ -51,6 +51,9 @@ on:
         description: 'Version to build (passed from version monitor)'
         required: false
 
+permissions:
+  contents: write  # Required for uploading release assets
+
 env:
   DOTNET_VERSION: '10.0'
   DOTNET_INSTALL_DIR: '/usr/share/dotnet'
@@ -329,4 +332,98 @@ jobs:
             echo "- **Status**: Test mode (no images built)" >> $GITHUB_STEP_SUMMARY
           else
             echo "- **Status**: Build and push completed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate Azure Publish Result JSON
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        id: generate-publish-result
+        run: |
+          VERSION="${{ steps.config.outputs.version }}"
+          IMAGE_NAME="hagicode"
+          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          GITHUB_RUN_ID="${{ github.run_id }}"
+          GITHUB_REPO="${{ github.repository }}"
+          GITHUB_SERVER_URL="${{ github.server_url }}"
+
+          # Parse version parts
+          MAJOR=$(echo ${VERSION} | cut -d. -f1)
+          MINOR=$(echo ${VERSION} | cut -d. -f2)
+
+          # Generate JSON output
+          cat > azure-publish-results-${VERSION}.json << EOF
+{
+  "version": "${VERSION}",
+  "publishedAt": "${PUBLISHED_AT}",
+  "github": {
+    "runId": "${GITHUB_RUN_ID}",
+    "runUrl": "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}",
+    "repository": "${GITHUB_REPO}"
+  },
+  "azure": {
+    "registry": "${REGISTRY}",
+    "images": [
+      {
+        "name": "${IMAGE_NAME}",
+        "tag": "base",
+        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:base"
+      },
+      {
+        "name": "${IMAGE_NAME}",
+        "tag": "${VERSION}",
+        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+      },
+      {
+        "name": "${IMAGE_NAME}",
+        "tag": "${MAJOR}.${MINOR}",
+        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}"
+      },
+      {
+        "name": "${IMAGE_NAME}",
+        "tag": "${MAJOR}",
+        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${MAJOR}"
+      },
+      {
+        "name": "${IMAGE_NAME}",
+        "tag": "latest",
+        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:latest"
+      }
+    ]
+  }
+}
+EOF
+
+          echo "Generated Azure publish result JSON:"
+          cat azure-publish-results-${VERSION}.json
+          echo "publish_result_file=azure-publish-results-${VERSION}.json" >> $GITHUB_OUTPUT
+
+      - name: Upload Publish Result to GitHub Release
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        run: |
+          VERSION="${{ steps.config.outputs.version }}"
+          FILE_NAME="azure-publish-results-${VERSION}.json"
+          RELEASE_TAG="v${VERSION}"
+
+          echo "Uploading ${FILE_NAME} to release ${RELEASE_TAG}..."
+
+          # Check if release exists
+          RELEASE_DATA=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")
+
+          if echo "$RELEASE_DATA" | grep -q "Not Found"; then
+            echo "Release ${RELEASE_TAG} not found - skipping upload"
+            echo "The release will be created by github-release-workflow.yml"
+            echo "You can manually upload the file after the release is created"
+          else
+            RELEASE_ID=$(echo "$RELEASE_DATA" | jq -r '.id')
+            UPLOAD_URL="${{ github.api_url }}/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets"
+
+            # Upload the file
+            curl -s -X POST \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Content-Type: application/json" \
+              --data-binary "@${FILE_NAME}" \
+              "${UPLOAD_URL}?name=${FILE_NAME}"
+
+            echo "Successfully uploaded ${FILE_NAME} to release ${RELEASE_TAG}"
           fi

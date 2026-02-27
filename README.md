@@ -10,6 +10,8 @@ The HagiCode release repository manages:
 - **GitHub Releases**: Creates GitHub releases with application packages
 - **Docker Multi-Arch Builds**: Builds and publishes Docker images for linux/amd64 and linux/arm64
 - **Edge ACR Publishing**: Pushes Docker images to Azure Container Registry
+- **Publish Result Tracking**: Automatically generates and uploads publish result JSON files to GitHub Releases
+- **Aliyun Image Sync**: Syncs Azure ACR images to Aliyun ACR with automatic version discovery
 
 ## Quick Start
 
@@ -126,6 +128,74 @@ The repository includes GitHub Actions workflows that are triggered automaticall
 | `version-monitor.yml` | Push to main, Schedule (every 4 hours) | Monitors Azure Blob for new versions |
 | `github-release-workflow.yml` | Repository dispatch (`version-monitor-release`) | Creates GitHub releases |
 | `docker-build.yml` | Tag push (v*.*.*), Repository dispatch (`version-monitor-docker`) | Builds and publishes Docker images |
+| `azure-to-aliyun-image-sync.yml` | Workflow run completion (docker-build), Manual | Syncs Azure images to Aliyun ACR |
+
+### Publish Result Tracking
+
+The `docker-build.yml` workflow automatically generates a publish result JSON file after successfully publishing images to Azure ACR. This file is uploaded to the GitHub Release and contains:
+
+- **Version**: The semantic version of the release
+- **Published At**: ISO 8601 timestamp of publish time
+- **Azure Registry**: The Azure Container Registry URL
+- **Azure Images**: Array of published image URLs (base, version, major/minor tags)
+- **GitHub Run Info**: Workflow run ID and URL for traceability
+
+The publish result file is named `azure-publish-results-{version}.json` and can be found in the Release's download section.
+
+### Aliyun Image Sync
+
+The `azure-to-aliyun-image-sync.yml` workflow automatically syncs Docker images from Azure ACR to Aliyun ACR (Alibaba Cloud Container Registry).
+
+#### Sync Modes
+
+1. **Automatic Trigger**: Runs automatically when `docker-build.yml` completes successfully
+2. **Manual Trigger**: Can be triggered manually with optional version parameter
+
+#### Using Manual Trigger
+
+1. Go to **Actions** tab
+2. Select **Azure to Aliyun Image Sync**
+3. Click **Run workflow**
+4. Configure:
+   - **VERSION**: Optional version to sync (e.g., `v1.2.3` or `1.2.3`)
+   - Leave empty to sync the latest release
+
+#### How It Works
+
+1. **Version Discovery**: Fetches the latest release or specific version from GitHub
+2. **Publish Result Download**: Downloads `azure-publish-results-{version}.json` from the Release
+3. **Image Extraction**: Parses the JSON to extract Azure image URLs
+4. **Multi-Arch Sync**: Syncs all images (AMD64 and ARM64) to Aliyun ACR
+5. **Verification**: Verifies images are available in Aliyun ACR
+
+#### Publish Result JSON Schema
+
+```json
+{
+  "version": "1.2.3",
+  "publishedAt": "2024-01-01T00:00:00Z",
+  "github": {
+    "runId": "1234567890",
+    "runUrl": "https://github.com/.../actions/runs/...",
+    "repository": "owner/repo"
+  },
+  "azure": {
+    "registry": "hagicode.azurecr.io",
+    "images": [
+      {
+        "name": "hagicode",
+        "tag": "base",
+        "fullUrl": "hagicode.azurecr.io/hagicode:base"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1.2.3",
+        "fullUrl": "hagicode.azurecr.io/hagicode:1.2.3"
+      }
+    ]
+  }
+}
+```
 
 ### Repository Dispatch Events
 
@@ -153,6 +223,8 @@ gh api --method POST repos/{owner}/{repo}/dispatches \
 
 You can trigger workflows manually from the GitHub Actions UI:
 
+#### Docker Build
+
 1. Go to **Actions** tab
 2. Select **Docker Multi-Arch Build and Push to Edge ACR**
 3. Click **Run workflow**
@@ -160,6 +232,15 @@ You can trigger workflows manually from the GitHub Actions UI:
    - **Version**: `1.2.3`
    - **Platform**: `all`, `linux-amd64`, or `linux-arm64`
    - **Dry Run**: Enable to test without publishing
+
+#### Aliyun Image Sync
+
+1. Go to **Actions** tab
+2. Select **Azure to Aliyun Image Sync**
+3. Click **Run workflow**
+4. Configure:
+   - **VERSION**: Optional version to sync (e.g., `v1.2.3` or `1.2.3`)
+   - Leave empty to sync the latest release automatically
 
 ## Configuration
 

@@ -9,16 +9,8 @@ on:
   # Trigger 2: Manual trigger
   workflow_dispatch:
     inputs:
-      sync_mode:
-        description: 'Sync mode'
-        required: false
-        type: choice
-        default: latest
-        options:
-          - latest
-          - specific
-      version:
-        description: 'Specific version to sync (required if sync_mode is specific)'
+      VERSION:
+        description: 'Version to sync (e.g., v1.2.3 or 1.2.3). Leave empty for latest.'
         required: false
         type: string
 
@@ -31,7 +23,6 @@ env:
   ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
   SOURCE_REGISTRY: hagicode.azurecr.io
   TARGET_REGISTRY: registry.cn-hangzhou.aliyuncs.com
-  IMAGE_NAME: hagicode
 
 jobs:
   sync:
@@ -43,63 +34,147 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Determine sync mode and version
-        id: determine
+      - name: Determine version to sync
+        id: determine-version
         run: |
           if [ "${{ github.event_name }}" == "workflow_run" ]; then
             # Get version from workflow_run event
             # Try to extract version from the run metadata
             WORKFLOW_RUN_ID=${{ github.event.workflow_run.id }}
 
-            # The docker-build workflow outputs version to GITHUB_OUTPUT
-            # We need to fetch it from the jobs
             JOBS_JSON=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
               "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${WORKFLOW_RUN_ID}/jobs")
 
-            # Try to find the version from job outputs
+            # Try to find the version from job outputs or steps
             VERSION=$(echo "$JOBS_JSON" | jq -r '.jobs[]?.steps[]? | select(.name | contains("Determine")) | .name' 2>/dev/null | \
               grep -oP 'v?\d+\.\d+\.\d+' | head -1 || echo "")
 
-            # Fallback: use version from git tag if available
             if [ -z "$VERSION" ]; then
-              VERSION=$(echo "$JOBS_JSON" | jq -r '.jobs[]?.conclusion' 2>/dev/null | head -1)
-              # Default to latest if no version found
               VERSION="latest"
             fi
 
-            echo "mode=specific" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "Sync mode: workflow_run (version: ${VERSION})"
           else
             # workflow_dispatch mode
-            SYNC_MODE="${{ github.event.inputs.sync_mode }}"
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${{ github.event.inputs.VERSION }}"
 
-            # Default to latest if no version specified in specific mode
-            if [ "$SYNC_MODE" == "specific" ] && [ -z "$VERSION" ]; then
+            # If no version specified, use latest
+            if [ -z "$VERSION" ]; then
               VERSION="latest"
             fi
 
-            echo "mode=${SYNC_MODE}" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
-            echo "Sync mode: workflow_dispatch (${SYNC_MODE}, version: ${VERSION})"
+            echo "Sync mode: workflow_dispatch (version: ${VERSION})"
           fi
+
+      - name: Fetch publish result from GitHub Release
+        id: fetch-publish-result
+        run: |
+          VERSION="${{ steps.determine-version.outputs.version }}"
+
+          echo "Fetching Azure publish result for version: ${VERSION}"
+
+          if [ "$VERSION" == "latest" ]; then
+            # Get latest release
+            RELEASE_DATA=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/releases/latest")
+
+            if echo "$RELEASE_DATA" | grep -q "Not Found"; then
+              echo "Error: No releases found in repository"
+              exit 1
+            fi
+
+            RELEASE_TAG=$(echo "$RELEASE_DATA" | jq -r '.tag_name')
+            VERSION=$(echo "$RELEASE_TAG" | sed 's/^v//')
+            echo "Latest release tag: ${RELEASE_TAG}, version: ${VERSION}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            # Ensure version has v prefix for release tag lookup
+            RELEASE_TAG="${VERSION}"
+            if [[ ! "${RELEASE_TAG}" =~ ^v ]]; then
+              RELEASE_TAG="v${RELEASE_TAG}"
+            fi
+
+            RELEASE_DATA=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")
+
+            if echo "$RELEASE_DATA" | grep -q "Not Found"; then
+              echo "Error: Release ${RELEASE_TAG} not found"
+              exit 1
+            fi
+          fi
+
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "Found release: ${RELEASE_TAG}"
+
+          # Find and download azure-publish-results-{version}.json
+          ASSET_NAME="azure-publish-results-${VERSION}.json"
+          ASSET_URL=$(echo "$RELEASE_DATA" | jq -r --arg asset_name "$ASSET_NAME" '.assets[] | select(.name == $asset_name) | .browser_download_url')
+
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
+            echo "Error: Publish result file ${ASSET_NAME} not found in release ${RELEASE_TAG}"
+            exit 1
+          fi
+
+          echo "Downloading publish result from: ${ASSET_URL}"
+          curl -s -o azure-publish-result.json "${ASSET_URL}"
+
+          if [ ! -s "azure-publish-result.json" ]; then
+            echo "Error: Failed to download publish result file"
+            exit 1
+          fi
+
+          echo "publish_result_file=azure-publish-result.json" >> $GITHUB_OUTPUT
+          echo "Successfully downloaded publish result file"
+          echo "Content:"
+          cat azure-publish-result.json
+
+      - name: Parse publish result for image list
+        id: parse-images
+        run: |
+          PUBLISH_RESULT_FILE="${{ steps.fetch-publish-result.outputs.publish_result_file }}"
+
+          echo "Parsing publish result file for Azure images..."
+
+          # Extract Azure registry and images
+          AZURE_REGISTRY=$(jq -r '.azure.registry' "$PUBLISH_RESULT_FILE")
+          IMAGE_COUNT=$(jq -r '.azure.images | length' "$PUBLISH_RESULT_FILE")
+
+          echo "Azure Registry: ${AZURE_REGISTRY}"
+          echo "Number of images: ${IMAGE_COUNT}"
+
+          # Generate version list from images
+          VERSIONS=""
+          for i in $(seq 0 $((IMAGE_COUNT - 1))); do
+            IMAGE_URL=$(jq -r ".azure.images[$i].fullUrl" "$PUBLISH_RESULT_FILE")
+            echo "Found image: ${IMAGE_URL}"
+
+            # Extract tag from image URL
+            TAG=$(echo "$IMAGE_URL" | sed 's/.*://')
+            VERSIONS="${VERSIONS}${VERSIONS:+,}${TAG}"
+          done
+
+          echo "azure_registry=${AZURE_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "image_versions=${VERSIONS}" >> $GITHUB_OUTPUT
+          echo "Versions to sync: ${VERSIONS}"
 
       - name: Display sync information
         run: |
           echo "=========================================="
           echo "Azure to Aliyun Image Sync"
           echo "=========================================="
-          echo "Sync Mode: ${{ steps.determine.outputs.mode }}"
-          echo "Version: ${{ steps.determine.outputs.version }}"
-          echo "Source Registry: ${{ env.SOURCE_REGISTRY }}"
+          echo "Version: ${{ steps.fetch-publish-result.outputs.version }}"
+          echo "Release Tag: ${{ steps.fetch-publish-result.outputs.release_tag }}"
+          echo "Azure Registry: ${{ steps.parse-images.outputs.azure_registry }}"
           echo "Target Registry: ${{ env.TARGET_REGISTRY }}"
+          echo "Images to sync: ${{ steps.parse-images.outputs.image_versions }}"
           echo "=========================================="
 
       - name: Login to Azure ACR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.SOURCE_REGISTRY }}
+          registry: ${{ steps.parse-images.outputs.azure_registry }}
           username: ${{ env.AZURE_ACR_USERNAME }}
           password: ${{ env.AZURE_ACR_PASSWORD }}
 
@@ -112,7 +187,6 @@ jobs:
 
       - name: Setup image-syncer
         run: |
-          # Download image-syncer from GitHub releases
           IMAGE_SYNCER_VERSION="v1.5.5"
           curl -sLo /tmp/image-syncer.tar.gz "https://github.com/AliyunContainerService/image-syncer/releases/download/${IMAGE_SYNCER_VERSION}/image-syncer-${IMAGE_SYNCER_VERSION}-linux-amd64.tar.gz"
           tar -xzf /tmp/image-syncer.tar.gz -C /tmp
@@ -122,73 +196,37 @@ jobs:
       - name: Generate image-syncer config
         id: config
         run: |
-          # Generate dynamic version list based on sync mode
-          VERSIONS=""
-
-          if [ "${{ steps.determine.outputs.mode }}" == "specific" ]; then
-            # Sync specific version
-            VERSION="${{ steps.determine.outputs.version }}"
-            # Add v prefix if not present
-            if [[ ! "$VERSION" =~ ^v ]]; then
-              VERSION="v${VERSION}"
-            fi
-            VERSIONS="${VERSION}"
-          else
-            # latest mode: sync all version tags + latest + base
-            # Get all tags from Azure ACR
-            echo "Fetching tags from Azure ACR..."
-            TAGS=$(curl -s -u "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}" \
-              "https://${{ env.SOURCE_REGISTRY }}/v2/${IMAGE_NAME}/tags/list" | \
-              jq -r '.tags[]' 2>/dev/null || echo "")
-
-            echo "Available tags: $TAGS"
-
-            # Filter version tags (v*.*.*) and special tags
-            for tag in $TAGS; do
-              if [[ "$tag" == v*.*.* ]] || [[ "$tag" == "latest" ]] || [[ "$tag" == "base" ]]; then
-                VERSIONS="${VERSIONS}${VERSIONS:+,}${tag}"
-              fi
-            done
-          fi
-
-          # If no versions found, use latest as fallback
-          if [ -z "$VERSIONS" ]; then
-            VERSIONS="latest"
-          fi
-
-          echo "Versions to sync: $VERSIONS"
-          echo "versions=${VERSIONS}" >> $GITHUB_OUTPUT
+          SOURCE_REGISTRY="${{ steps.parse-images.outputs.azure_registry }}"
+          TARGET_REGISTRY="${{ env.TARGET_REGISTRY }}"
+          VERSIONS="${{ steps.parse-images.outputs.image_versions }}"
 
           # Create config.yaml
-          # Note: image-syncer expects images as a map, not a list
           cat > config.yaml << EOF
-          registry:
+registry:
             # Source registry - Azure ACR
-            ${{ env.SOURCE_REGISTRY }}:
+            ${SOURCE_REGISTRY}:
               auth: "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}"
             # Target registry - Aliyun ACR
-            ${{ env.TARGET_REGISTRY }}:
+            ${TARGET_REGISTRY}:
               auth: "${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}"
 
-          images:
-          $(
+images:
+$(
             IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
             for version in "${VERSION_ARRAY[@]}"; do
-              echo "  ${{ env.SOURCE_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}: ${{ env.TARGET_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}"
+              echo "  ${SOURCE_REGISTRY}/hagicode:${version}: ${TARGET_REGISTRY}/hagicode:${version}"
             done
           )
-          EOF
+EOF
 
           echo "Generated config.yaml:"
           cat config.yaml
+          echo "versions=${VERSIONS}" >> $GITHUB_OUTPUT
 
       - name: Sync images
         id: sync
         run: |
           echo "Starting image sync..."
-          # Run image-syncer with error handling
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          # Use correct flags for image-syncer v1.5.5
           if /tmp/image-syncer --config config.yaml --arch amd64,arm64 --proc 4; then
             echo "sync_result=success" >> $GITHUB_OUTPUT
             echo "Image sync completed successfully!"
@@ -201,25 +239,24 @@ jobs:
       - name: Verify sync results
         if: success()
         run: |
-          # Verify images exist in Aliyun ACR
           VERSIONS="${{ steps.config.outputs.versions }}"
+          TARGET_REGISTRY="${{ env.TARGET_REGISTRY }}"
           FAILED=0
           SUCCESS_COUNT=0
 
           IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
           for version in "${VERSION_ARRAY[@]}"; do
-            echo "Verifying ${{ env.TARGET_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}..."
-            # Use basic auth for verification
+            echo "Verifying ${TARGET_REGISTRY}/hagicode:${version}..."
             RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
-              "https://${{ env.TARGET_REGISTRY }}/v2/${{ env.IMAGE_NAME }}/manifests/${version}" \
+              "https://${TARGET_REGISTRY}/v2/hagicode/manifests/${version}" \
               -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
               -u "${{ env.ALIYUN_ACR_USERNAME }}:${{ env.ALIYUN_ACR_PASSWORD }}")
 
             if [ "$RESULT" == "200" ]; then
-              echo "✓ ${{ env.IMAGE_NAME }}:${version} synced successfully"
+              echo "✓ hagicode:${version} synced successfully"
               SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
             else
-              echo "✗ ${{ env.IMAGE_NAME }}:${version} verification failed (HTTP $RESULT)"
+              echo "✗ hagicode:${version} verification failed (HTTP $RESULT)"
               FAILED=1
             fi
           done
@@ -229,26 +266,19 @@ jobs:
           echo "=========================================="
           echo "Total: ${#VERSION_ARRAY[@]}, Success: ${SUCCESS_COUNT}, Failed: ${FAILED}"
 
-          if [ $FAILED -eq 1 ]; then
-            echo "Warning: Some images failed to verify - sync may have completed but verification needs attention"
-          else
-            echo "All images synced and verified successfully!"
-          fi
-
       - name: Success notification
         if: success()
         run: |
           echo "=========================================="
           echo "Image sync completed successfully!"
           echo "=========================================="
-          echo "Mode: ${{ steps.determine.outputs.mode }}"
-          echo "Versions: ${{ steps.config.outputs.versions }}"
+          echo "Version: ${{ steps.fetch-publish-result.outputs.version }}"
+          echo "Images: ${{ steps.config.outputs.versions }}"
           echo "=========================================="
 
       - name: Failure notification
         if: failure()
         run: |
-          # Send failure notification to Feishu
           WEBHOOK_URL="${{ secrets.FEISHU_WEBHOOK_URL }}"
           if [ -n "$WEBHOOK_URL" ]; then
             echo "Sending failure notification..."
@@ -263,7 +293,7 @@ jobs:
                 "elements": [
                   {
                     "tag": "markdown",
-                    "content": "**Azure to Aliyun Image Sync Failed**\n\n**Mode:** ${{ steps.determine.outputs.mode }}\n**Version:** ${{ steps.determine.outputs.version }}\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    "content": "**Azure to Aliyun Image Sync Failed**\n\n**Version:** ${{ steps.fetch-publish-result.outputs.version }}\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   }
                 ]
               }
