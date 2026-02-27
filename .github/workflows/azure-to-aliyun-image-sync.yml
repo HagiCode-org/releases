@@ -158,6 +158,7 @@ jobs:
           echo "versions=${VERSIONS}" >> $GITHUB_OUTPUT
 
           # Create config.yaml
+          # Note: image-syncer expects images as a map, not a list
           cat > config.yaml << EOF
           registry:
             # Source registry - Azure ACR
@@ -171,7 +172,7 @@ jobs:
           $(
             IFS=',' read -ra VERSION_ARRAY <<< "$VERSIONS"
             for version in "${VERSION_ARRAY[@]}"; do
-              echo "  - ${{ env.IMAGE_NAME }}:${version} => ${{ env.IMAGE_NAME }}:${version}"
+              echo "  ${{ env.SOURCE_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}: ${{ env.TARGET_REGISTRY }}/${{ env.IMAGE_NAME }}:${version}"
             done
           )
           EOF
