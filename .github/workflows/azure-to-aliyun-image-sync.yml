@@ -112,10 +112,12 @@ jobs:
 
       - name: Setup image-syncer
         run: |
-          # Install image-syncer using go install
-          go install github.com/AliyunContainerService/image-syncer@latest
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          echo "image-syncer installed"
+          # Download image-syncer from GitHub releases
+          IMAGE_SYNCER_VERSION="v1.5.5"
+          curl -sLo /tmp/image-syncer.tar.gz "https://github.com/AliyunContainerService/image-syncer/releases/download/${IMAGE_SYNCER_VERSION}/image-syncer-${IMAGE_SYNCER_VERSION#v}-linux-amd64.tar.gz"
+          tar -xzf /tmp/image-syncer.tar.gz -C /tmp
+          chmod +x /tmp/image-syncer
+          echo "image-syncer version: ${IMAGE_SYNCER_VERSION}"
 
       - name: Generate image-syncer config
         id: config
@@ -187,7 +189,7 @@ jobs:
           # Run image-syncer with error handling
           export PATH="$PATH:$(go env GOPATH)/bin"
           # Use correct flags for image-syncer v1.5.5
-          if image-syncer --config config.yaml --arch amd64,arm64 --proc 4; then
+          if /tmp/image-syncer --config config.yaml --arch amd64,arm64 --proc 4; then
             echo "sync_result=success" >> $GITHUB_OUTPUT
             echo "Image sync completed successfully!"
           else
