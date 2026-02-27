@@ -350,48 +350,34 @@ jobs:
           MAJOR=$(echo ${VERSION} | cut -d. -f1)
           MINOR=$(echo ${VERSION} | cut -d. -f2)
 
-          # Generate JSON output
-          cat > azure-publish-results-${VERSION}.json << EOF
-{
-  "version": "${VERSION}",
-  "publishedAt": "${PUBLISHED_AT}",
-  "github": {
-    "runId": "${GITHUB_RUN_ID}",
-    "runUrl": "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}",
-    "repository": "${GITHUB_REPO}"
-  },
-  "azure": {
-    "registry": "${REGISTRY}",
-    "images": [
-      {
-        "name": "${IMAGE_NAME}",
-        "tag": "base",
-        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:base"
-      },
-      {
-        "name": "${IMAGE_NAME}",
-        "tag": "${VERSION}",
-        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${VERSION}"
-      },
-      {
-        "name": "${IMAGE_NAME}",
-        "tag": "${MAJOR}.${MINOR}",
-        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}"
-      },
-      {
-        "name": "${IMAGE_NAME}",
-        "tag": "${MAJOR}",
-        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:${MAJOR}"
-      },
-      {
-        "name": "${IMAGE_NAME}",
-        "tag": "latest",
-        "fullUrl": "${REGISTRY}/${IMAGE_NAME}:latest"
-      }
-    ]
-  }
-}
-EOF
+          # Generate JSON using jq
+          jq -n \
+            --arg version "${VERSION}" \
+            --arg publishedAt "${PUBLISHED_AT}" \
+            --arg runId "${GITHUB_RUN_ID}" \
+            --arg runUrl "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg repository "${GITHUB_REPO}" \
+            --arg registry "${REGISTRY}" \
+            --arg imageName "${IMAGE_NAME}" \
+            '{
+              version: $version,
+              publishedAt: $publishedAt,
+              github: {
+                runId: $runId,
+                runUrl: $runUrl,
+                repository: $repository
+              },
+              azure: {
+                registry: $registry,
+                images: [
+                  { name: $imageName, tag: "base", fullUrl: ($registry + "/" + $imageName + ":base") },
+                  { name: $imageName, tag: $version, fullUrl: ($registry + "/" + $imageName + ":" + $version) },
+                  { name: $imageName, tag: ($version | split(".")[0] + "." + ($version | split(".")[1])), fullUrl: ($registry + "/" + $imageName + ":" + ($version | split(".")[0] + "." + ($version | split(".")[1]))) },
+                  { name: $imageName, tag: ($version | split(".")[0]), fullUrl: ($registry + "/" + $imageName + ":" + ($version | split(".")[0])) },
+                  { name: $imageName, tag: "latest", fullUrl: ($registry + "/" + $imageName + ":latest") }
+                ]
+              }
+            }' > azure-publish-results-${VERSION}.json
 
           echo "Generated Azure publish result JSON:"
           cat azure-publish-results-${VERSION}.json
