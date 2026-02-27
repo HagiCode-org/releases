@@ -262,7 +262,7 @@ jobs:
           # Remove v prefix for tag operations
           CLEAN_VERSION="${VERSION#v}"
           IMAGE_NAME="hagicode"
-          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}
+          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
 
           # Parse version parts from clean version
           MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
