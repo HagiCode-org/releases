@@ -1,0 +1,68 @@
+# ------------------------------------------------------------------------------
+# GitHub Release Workflow
+#
+# This workflow creates GitHub Releases independently of Docker builds.
+# It is triggered by version-monitor.yml discovering new versions.
+#
+# IMPORTANT: This workflow is completely decoupled from Docker build workflows.
+# - It can run independently without any Docker builds
+# - Docker builds do not depend on this workflow
+# - Failed Release creation does not affect Docker builds
+# ------------------------------------------------------------------------------
+
+name: GitHub Release Workflow
+
+on:
+  repository_dispatch:
+    types: [version-monitor-release]
+
+permissions:
+  contents: write  # Required for creating GitHub Releases
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      release_url: ${{ steps.release.outputs.release_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Extract version from event payload
+        id: extract-version
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Run GitHub Release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          ./build.sh GitHubRelease
+
+          # Output release URL from logs
+          # The GitHubRelease target will output the release URL
+          # We capture it from the log output
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        if: always()
+        with:
+          msg_type: 'interactive'
+          title: 'GitHub Release 创建完成'
+          message: |
+            **版本**: ${{ steps.extract-version.outputs.version }}
+            **状态**: Release 创建完成
+            **触发者**: ${{ github.actor }}
+            **时间**: ${{ github.event.repository.updated_at }}
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

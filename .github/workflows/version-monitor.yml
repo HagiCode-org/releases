@@ -1,0 +1,94 @@
+name: Version Monitor
+
+on:
+  schedule:
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not trigger release)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  monitor:
+    name: Monitor for new versions
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_versions: ${{ steps.version-monitor.outputs.has_new_versions }}
+      new_versions: ${{ steps.version-monitor.outputs.new_versions }}
+      latest_version: ${{ steps.version-monitor.outputs.latest_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Version Monitor
+        id: version-monitor
+        env:
+          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          NUGEX_DryRun: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          ./build.sh VersionMonitor
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Version Monitor Failed - $(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
+            --label "bug,automation" \
+            --body "Version Monitor workflow failed at $(date -u +'%Y-%m-%d %H:%M:%S UTC').
+
+          **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Please check the logs for more details." \
+            --repo "${{ github.repository }}" || echo "Failed to create issue"
+
+      - name: Send Feishu Notification
+        id: feishu-notify
+        uses: HagiCode-org/haginotifier@v1
+        # Run only if there are new versions OR if monitor failed OR if main branch was pushed
+        if: steps.version-monitor.outputs.has_new_versions == 'true' || failure() || github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          msg_type: 'post'
+          title: ${{ github.event_name == 'push' && '✅ Main 分支更新' || (steps.version-monitor.outputs.has_new_versions == 'true' && '✨ 发现新版本' || '❌ Version Monitor 失败') }}
+          message: |
+            {% if github.event_name == 'push' && github.ref == 'refs/heads/main' %}
+            **状态**: Main 分支更新
+            **分支**: ${{ github.ref_name }}
+            **提交**: ${{ github.sha }}
+            **仓库**: ${{ github.repository }}
+            **时间**: ${{ github.event.repository.updated_at }}
+
+            {% if steps.version-monitor.outputs.has_new_versions == 'true' %}
+            **监控结果**: 发现新版本
+            **版本**: ${{ steps.version-monitor.outputs.new_versions }}
+            {% elif steps.version-monitor.outputs.has_new_versions == 'true' == false && job.status == 'success' %}
+            **监控结果**: 未发现新版本
+            {% else %}
+            **监控结果**: 失败 - 请检查日志
+            {% endif %}
+
+            {% if job.status == 'failure' %}
+            **失败原因**: 工作流执行失败
+            {% endif %}
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
