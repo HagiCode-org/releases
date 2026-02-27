@@ -204,6 +204,8 @@ jobs:
         if: steps.config.outputs.version != 'latest'
         run: |
           VERSION="${{ steps.config.outputs.version }}"
+          # Remove v prefix for Docker image tags
+          CLEAN_VERSION="${VERSION#v}"
           PLATFORM="${{ steps.config.outputs.platform }}"
           IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
@@ -215,7 +217,7 @@ jobs:
           # Generate Dockerfile from template
           mkdir -p output/docker-build-context
           cat docker_deployment/Dockerfile.app.template | \
-            sed "s|{version}|${VERSION}|g" | \
+            sed "s|{version}|${CLEAN_VERSION}|g" | \
             sed "s|{build_date}|${BUILD_DATE}|g" | \
             sed "s|{base_image_name}|${BASE_IMAGE}|g" \
             > output/docker-build-context/Dockerfile.app
@@ -230,26 +232,26 @@ jobs:
             # Multi-arch build with push to registry - only use Edge ACR
             docker buildx build \
               --platform linux/amd64,linux/arm64 \
-              --tag ${REGISTRY}/${IMAGE_NAME}:${VERSION} \
+              --tag ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION} \
               --file output/docker-build-context/Dockerfile.app \
               --output type=registry \
               output/docker-build-context/
 
-            echo "Multi-arch build completed for version: ${VERSION}"
+            echo "Multi-arch build completed for version: ${CLEAN_VERSION}"
           else
             # Single platform build
             docker buildx build \
               --platform ${PLATFORM} \
-              --tag ${REGISTRY}/${IMAGE_NAME}:${VERSION} \
+              --tag ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION} \
               --file output/docker-build-context/Dockerfile.app \
               --load \
               output/docker-build-context/
 
-            echo "Single platform build completed: ${PLATFORM} for version: ${VERSION}"
+            echo "Single platform build completed: ${PLATFORM} for version: ${CLEAN_VERSION}"
 
             if [ "${{ inputs.dry_run }}" != "true" ]; then
-              docker push ${REGISTRY}/${IMAGE_NAME}:${VERSION}
-              echo "Image pushed: ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+              docker push ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
+              echo "Image pushed: ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}"
             fi
           fi
 
@@ -257,32 +259,34 @@ jobs:
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
+          # Remove v prefix for tag operations
+          CLEAN_VERSION="${VERSION#v}"
           IMAGE_NAME="hagicode"
-          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}
 
-          # Parse version parts
-          MAJOR=$(echo ${VERSION} | cut -d. -f1)
-          MINOR=$(echo ${VERSION} | cut -d. -f2)
+          # Parse version parts from clean version
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
 
           # For multi-arch images pushed with --output type=registry, we can't tag locally
           # Instead, we use docker manifest to verify tags exist
           # The manifest tool automatically handles cross-repo tagging
 
           # Push minor version tag using manifest (works with multi-arch)
-          docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR} ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+          docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR} ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
           echo "Pushed minor tag: ${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}"
 
           # Push major version tag using manifest
-          docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:${MAJOR} ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+          docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:${MAJOR} ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
           echo "Pushed major tag: ${REGISTRY}/${IMAGE_NAME}:${MAJOR}"
 
           # Push latest tag only for stable releases (not pre-release like rc, beta, alpha)
           # Check if version contains pre-release suffixes
-          if [[ ! ${VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] && [[ ! ${VERSION} =~ -(rc|beta|alpha|preview|dev) ]]; then
-            docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:latest ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+          if [[ ! ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] && [[ ! ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]]; then
+            docker buildx imagetools create -t ${REGISTRY}/${IMAGE_NAME}:latest ${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
             echo "Pushed latest tag: ${REGISTRY}/${IMAGE_NAME}:latest"
           else
-            echo "Skipped latest tag - pre-release version detected: ${VERSION}"
+            echo "Skipped latest tag - pre-release version detected: ${CLEAN_VERSION}"
           fi
 
       - name: Verify Images in Registry
@@ -346,13 +350,16 @@ jobs:
           GITHUB_REPO="${{ github.repository }}"
           GITHUB_SERVER_URL="${{ github.server_url }}"
 
+          # Remove v prefix from VERSION for internal processing
+          CLEAN_VERSION="${VERSION#v}"
+
           # Parse version parts
-          MAJOR=$(echo ${VERSION} | cut -d. -f1)
-          MINOR=$(echo ${VERSION} | cut -d. -f2)
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
 
           # Generate JSON using jq
           jq -n \
-            --arg version "${VERSION}" \
+            --arg version "${CLEAN_VERSION}" \
             --arg publishedAt "${PUBLISHED_AT}" \
             --arg runId "${GITHUB_RUN_ID}" \
             --arg runUrl "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}" \
@@ -377,18 +384,22 @@ jobs:
                   { name: $imageName, tag: "latest", fullUrl: ($registry + "/" + $imageName + ":latest") }
                 ]
               }
-            }' > azure-publish-results-${VERSION}.json
+            }' > azure-publish-results-${CLEAN_VERSION}.json
 
           echo "Generated Azure publish result JSON:"
-          cat azure-publish-results-${VERSION}.json
-          echo "publish_result_file=azure-publish-results-${VERSION}.json" >> $GITHUB_OUTPUT
+          cat azure-publish-results-${CLEAN_VERSION}.json
+          echo "publish_result_file=azure-publish-results-${CLEAN_VERSION}.json" >> $GITHUB_OUTPUT
+          echo "clean_version=${CLEAN_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Upload Publish Result to GitHub Release
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          FILE_NAME="azure-publish-results-${VERSION}.json"
-          RELEASE_TAG="v${VERSION}"
+          CLEAN_VERSION="${{ steps.generate-publish-result.outputs.clean_version }}"
+          FILE_NAME="azure-publish-results-${CLEAN_VERSION}.json"
+
+          # Use VERSION as release tag (it already includes v prefix from git tag)
+          RELEASE_TAG="${VERSION}"
 
           echo "Uploading ${FILE_NAME} to release ${RELEASE_TAG}..."
 

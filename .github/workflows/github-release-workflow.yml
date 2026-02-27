@@ -15,6 +15,9 @@ name: GitHub Release Workflow
 on:
   repository_dispatch:
     types: [version-monitor-release]
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write  # Required for creating GitHub Releases
@@ -30,11 +33,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Extract version from event payload
+      - name: Extract version from event payload or tag
         id: extract-version
         run: |
-          VERSION="${{ github.event.client_payload.version }}"
-          echo "Extracted version: $VERSION"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+            echo "Extracted version from repository_dispatch: $VERSION"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+              echo "Extracted version from tag: $VERSION"
+            else
+              echo "Error: Not a tag push event"
+              exit 1
+            fi
+          else
+            echo "Error: No version available"
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Run GitHub Release
