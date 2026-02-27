@@ -113,25 +113,42 @@ jobs:
           ASSET_URL=$(echo "$RELEASE_DATA" | jq -r --arg asset_name "$ASSET_NAME" '.assets[] | select(.name == $asset_name) | .browser_download_url')
 
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
-            echo "Error: Publish result file ${ASSET_NAME} not found in release ${RELEASE_TAG}"
-            exit 1
+            echo "Publish result file ${ASSET_NAME} not found in release ${RELEASE_TAG}"
+            echo "use_fallback=true" >> $GITHUB_OUTPUT
+            echo "Will use fallback method: sync all tags from Azure ACR"
+          else
+            echo "Downloading publish result from: ${ASSET_URL}"
+            curl -s -o azure-publish-result.json "${ASSET_URL}"
+
+            if [ ! -s "azure-publish-result.json" ]; then
+              echo "Error: Failed to download publish result file"
+              exit 1
+            fi
+
+            echo "publish_result_file=azure-publish-result.json" >> $GITHUB_OUTPUT
+            echo "use_fallback=false" >> $GITHUB_OUTPUT
+            echo "Successfully downloaded publish result file"
+            echo "Content:"
+            cat azure-publish-result.json
           fi
 
-          echo "Downloading publish result from: ${ASSET_URL}"
-          curl -s -o azure-publish-result.json "${ASSET_URL}"
+      - name: Determine sync method
+        id: sync-method
+        run: |
+          USE_FALLBACK="${{ steps.fetch-publish-result.outputs.use_fallback }}"
+          VERSION="${{ steps.fetch-publish-result.outputs.version }}"
 
-          if [ ! -s "azure-publish-result.json" ]; then
-            echo "Error: Failed to download publish result file"
-            exit 1
+          if [ "$USE_FALLBACK" == "true" ]; then
+            echo "sync_method=fallback" >> $GITHUB_OUTPUT
+            echo "Using fallback method: will fetch all tags from Azure ACR"
+          else
+            echo "sync_method=publish_result" >> $GITHUB_OUTPUT
+            echo "Using publish result file method"
           fi
-
-          echo "publish_result_file=azure-publish-result.json" >> $GITHUB_OUTPUT
-          echo "Successfully downloaded publish result file"
-          echo "Content:"
-          cat azure-publish-result.json
 
       - name: Parse publish result for image list
         id: parse-images
+        if: steps.sync-method.outputs.sync_method == 'publish_result'
         run: |
           PUBLISH_RESULT_FILE="${{ steps.fetch-publish-result.outputs.publish_result_file }}"
 
@@ -159,6 +176,73 @@ jobs:
           echo "image_versions=${VERSIONS}" >> $GITHUB_OUTPUT
           echo "Versions to sync: ${VERSIONS}"
 
+      - name: Fallback: Fetch tags from Azure ACR
+        id: fallback-tags
+        if: steps.sync-method.outputs.sync_method == 'fallback'
+        run: |
+          VERSION="${{ steps.fetch-publish-result.outputs.version }}"
+          SOURCE_REGISTRY="${{ env.SOURCE_REGISTRY }}"
+          IMAGE_NAME="hagicode"
+
+          echo "Using fallback method for version ${VERSION}"
+          echo "Fetching all tags from Azure ACR..."
+
+          # Get all tags from Azure ACR
+          TAGS=$(curl -s -u "${{ env.AZURE_ACR_USERNAME }}:${{ env.AZURE_ACR_PASSWORD }}" \
+            "https://${SOURCE_REGISTRY}/v2/${IMAGE_NAME}/tags/list" | \
+            jq -r '.tags[]' 2>/dev/null || echo "")
+
+          echo "Available tags: $TAGS"
+
+          # Filter version tags (v*.*.*), special tags, and tags matching the specific version
+          VERSIONS=""
+
+          # First, check if we can find tags matching the specific version
+          if [ "$VERSION" != "latest" ]; then
+            # Add the exact version tag (with and without v prefix)
+            if echo "$TAGS" | grep -q "^${VERSION}$"; then
+              VERSIONS="${VERSIONS}${VERSIONS:+,}${VERSION}"
+            fi
+            if echo "$TAGS" | grep -q "^v${VERSION}$"; then
+              VERSIONS="${VERSIONS}${VERSIONS:+,}v${VERSION}"
+            fi
+          fi
+
+          # Add special tags if they exist
+          for tag in $TAGS; do
+            if [[ "$tag" == "latest" ]] || [[ "$tag" == "base" ]]; then
+              # Avoid duplicates
+              if ! echo "$VERSIONS" | grep -q "$tag"; then
+                VERSIONS="${VERSIONS}${VERSIONS:+,}${tag}"
+              fi
+            fi
+          done
+
+          # If no versions found, use latest as fallback
+          if [ -z "$VERSIONS" ]; then
+            VERSIONS="latest"
+            echo "No matching tags found, using latest"
+          fi
+
+          echo "azure_registry=${SOURCE_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "image_versions=${VERSIONS}" >> $GITHUB_OUTPUT
+          echo "Versions to sync: ${VERSIONS}"
+
+      - name: Set registry and versions for sync
+        id: sync-config
+        run: |
+          if [ "${{ steps.sync-method.outputs.sync_method }}" == "publish_result" ]; then
+            AZURE_REGISTRY="${{ steps.parse-images.outputs.azure_registry }}"
+            VERSIONS="${{ steps.parse-images.outputs.image_versions }}"
+          else
+            AZURE_REGISTRY="${{ steps.fallback-tags.outputs.azure_registry }}"
+            VERSIONS="${{ steps.fallback-tags.outputs.image_versions }}"
+          fi
+
+          echo "azure_registry=${AZURE_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "image_versions=${VERSIONS}" >> $GITHUB_OUTPUT
+          echo "Final config: registry=${AZURE_REGISTRY}, versions=${VERSIONS}"
+
       - name: Display sync information
         run: |
           echo "=========================================="
@@ -166,15 +250,16 @@ jobs:
           echo "=========================================="
           echo "Version: ${{ steps.fetch-publish-result.outputs.version }}"
           echo "Release Tag: ${{ steps.fetch-publish-result.outputs.release_tag }}"
-          echo "Azure Registry: ${{ steps.parse-images.outputs.azure_registry }}"
+          echo "Sync Method: ${{ steps.sync-method.outputs.sync_method }}"
+          echo "Azure Registry: ${{ steps.sync-config.outputs.azure_registry }}"
           echo "Target Registry: ${{ env.TARGET_REGISTRY }}"
-          echo "Images to sync: ${{ steps.parse-images.outputs.image_versions }}"
+          echo "Images to sync: ${{ steps.sync-config.outputs.image_versions }}"
           echo "=========================================="
 
       - name: Login to Azure ACR
         uses: docker/login-action@v3
         with:
-          registry: ${{ steps.parse-images.outputs.azure_registry }}
+          registry: ${{ steps.sync-config.outputs.azure_registry }}
           username: ${{ env.AZURE_ACR_USERNAME }}
           password: ${{ env.AZURE_ACR_PASSWORD }}
 
@@ -196,9 +281,9 @@ jobs:
       - name: Generate image-syncer config
         id: config
         run: |
-          SOURCE_REGISTRY="${{ steps.parse-images.outputs.azure_registry }}"
+          SOURCE_REGISTRY="${{ steps.sync-config.outputs.azure_registry }}"
           TARGET_REGISTRY="${{ env.TARGET_REGISTRY }}"
-          VERSIONS="${{ steps.parse-images.outputs.image_versions }}"
+          VERSIONS="${{ steps.sync-config.outputs.image_versions }}"
 
           # Create config.yaml using echo commands to avoid heredoc issues
           echo "registry:" > config.yaml
@@ -268,6 +353,7 @@ jobs:
           echo "Image sync completed successfully!"
           echo "=========================================="
           echo "Version: ${{ steps.fetch-publish-result.outputs.version }}"
+          echo "Sync Method: ${{ steps.sync-method.outputs.sync_method }}"
           echo "Images: ${{ steps.config.outputs.versions }}"
           echo "=========================================="
 
@@ -278,7 +364,7 @@ jobs:
           if [ -n "$WEBHOOK_URL" ]; then
             echo "Sending failure notification..."
             curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"msg_type\":\"interactive\",\"card\":{\"header\":{\"title\":{\"tag\":\"plain_text\",\"content\":\"⚠️ Image Sync Failed\"},\"template\":\"red\"},\"elements\":[{\"tag\":\"markdown\",\"content\":\"**Azure to Aliyun Image Sync Failed**\\n\\n**Version:** ${{ steps.fetch-publish-result.outputs.version }}\\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}]}}" \
+              -d "{\"msg_type\":\"interactive\",\"card\":{\"header\":{\"title\":{\"tag\":\"plain_text\",\"content\":\"⚠️ Image Sync Failed\"},\"template\":\"red\"},\"elements\":[{\"tag\":\"markdown\",\"content\":\"**Azure to Aliyun Image Sync Failed**\\n\\n**Version:** ${{ steps.fetch-publish-result.outputs.version }}\\n**Sync Method:** ${{ steps.sync-method.outputs.sync_method }}\\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}]}}" \
               "$WEBHOOK_URL"
             echo "Notification sent!"
           else
