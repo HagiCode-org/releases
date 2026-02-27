@@ -105,5 +105,33 @@ jobs:
             **链接**:
             • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
+            {% elif steps.version-monitor.outputs.has_new_versions == 'true' %}
+            **事件**: Version Monitor 检测到新版本
+            **版本**: {{ steps.version-monitor.outputs.new_versions }}
+            **仓库**: ${{ github.repository }}
+            **触发的工作流**:
+            • GitHub Release (version-monitor-release)
+            • Docker Build (version-monitor-docker)
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            {% elif job.status == 'failure' %}
+            **事件**: Version Monitor 失败
+            **仓库**: ${{ github.repository }}
+            **时间**: ${{ github.run_started_at }}
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            {% else %}
+            **事件**: 未发现新版本
+            **仓库**: ${{ github.repository }}
+            **时间**: ${{ github.run_started_at }}
+
+            **链接**:
+            • Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            {% endif %}
+
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

@@ -123,9 +123,31 @@ The repository includes GitHub Actions workflows that are triggered automaticall
 
 | Workflow | Trigger | Description |
 |----------|----------|-------------|
-| `version-monitor.yml` | Push to main | Monitors Azure Blob for new versions |
-| `github-release-workflow.yml` | Repository dispatch | Creates GitHub releases |
-| `docker-build.yml` | Tag push (v*.*.*) | Builds and publishes Docker images |
+| `version-monitor.yml` | Push to main, Schedule (every 4 hours) | Monitors Azure Blob for new versions |
+| `github-release-workflow.yml` | Repository dispatch (`version-monitor-release`) | Creates GitHub releases |
+| `docker-build.yml` | Tag push (v*.*.*), Repository dispatch (`version-monitor-docker`) | Builds and publishes Docker images |
+
+### Repository Dispatch Events
+
+The workflows can be triggered programmatically via repository_dispatch events:
+
+| Event Type | Triggered By | Payload Required |
+|------------|---------------|------------------|
+| `version-monitor-release` | Version Monitor | `{"version": "1.2.3"}` |
+| `version-monitor-docker` | Version Monitor | `{"version": "1.2.3"}` |
+
+Example trigger via GitHub CLI:
+```bash
+# Trigger GitHub Release
+gh api --method POST repos/{owner}/{repo}/dispatches \
+  -F event_type='version-monitor-release' \
+  -F client_payload='{"version": "1.2.3"}'
+
+# Trigger Docker Build
+gh api --method POST repos/{owner}/{repo}/dispatches \
+  -F event_type='version-monitor-docker' \
+  -F client_payload='{"version": "1.2.3"}'
+```
 
 ### Manual Workflow Trigger
 

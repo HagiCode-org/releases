@@ -90,6 +90,7 @@ partial class Build
         foreach (var version in newVersions)
         {
             TriggerReleaseForVersion(version);
+            TriggerDockerDispatch(version);
         }
 
         Log.Information("Version Monitor completed successfully");
@@ -251,6 +252,91 @@ partial class Build
         catch (Exception ex)
         {
             Log.Error(ex, "Failed to trigger release for version {Version}", version);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Triggers Docker build workflow via repository_dispatch event.
+    /// Uses event_type "version-monitor-docker" to distinguish from release workflow.
+    /// </summary>
+    /// <param name="version">The version to build</param>
+    void TriggerDockerDispatch(string version)
+    {
+        var repository = EffectiveGitHubRepository;
+        var dryRun = EffectiveDryRun;
+
+        Log.Information("Triggering Docker dispatch for version: {Version}", version);
+
+        if (dryRun)
+        {
+            Log.Warning("[DRY RUN] Would trigger Docker dispatch for version {Version}", version);
+            return;
+        }
+
+        try
+        {
+            // Build complete request body as JSON
+            // Uses event_type "version-monitor-docker" to trigger docker-build.yml
+            var requestBody = JsonSerializer.Serialize(new
+            {
+                event_type = "version-monitor-docker",
+                client_payload = new
+                {
+                    version = version
+                }
+            });
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "gh",
+                ArgumentList =
+                {
+                    "api",
+                    "--method", "POST",
+                    "-H", "Accept: application/vnd.github.v3+json",
+                    "-H", "Content-Type: application/json",
+                    $"/repos/{repository}/dispatches",
+                    "--input", "-"
+                },
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                Environment =
+                {
+                    ["GH_TOKEN"] = EffectiveGitHubToken
+                }
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process == null)
+            {
+                throw new Exception("Failed to start gh process");
+            }
+
+            // Write JSON body to stdin
+            process.StandardInput.Write(requestBody);
+            process.StandardInput.Close();
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"gh api dispatch failed: {error}");
+            }
+
+            Log.Information("Successfully triggered Docker workflow for version {Version}", version);
+
+            // Verify dispatch created a workflow run
+            VerifyDispatchCreated(version, repository);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger Docker dispatch for version {Version}", version);
             throw;
         }
     }

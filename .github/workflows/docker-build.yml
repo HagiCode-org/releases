@@ -1,5 +1,23 @@
 name: Docker Multi-Arch Build and Push to Edge ACR
 
+# This workflow supports three trigger mechanisms:
+#
+# 1. Tag Push (e.g., v1.2.3) - Builds when a new version tag is pushed
+# 2. Main Branch Push - Builds latest for testing when main branch is updated
+# 3. workflow_dispatch - Manual trigger with optional version/platform inputs
+# 4. repository_dispatch (version-monitor-docker) - Automatic trigger from version monitor
+#
+# Version Resolution Priority (for steps.config outputs):
+#   1. workflow_dispatch input: version parameter
+#   2. repository_dispatch: github.event.client_payload.version (from version monitor)
+#   3. Git tag push: extract version from tag ref
+#   4. Branch push: use "latest" for testing
+#   5. Default: "latest"
+#
+# The repository_dispatch trigger (type: version-monitor-docker) is used by the
+# version monitor to automatically trigger Docker builds when new versions are detected.
+# This follows the same pattern as the github-release-workflow.yml.
+
 on:
   push:
     tags:
@@ -26,6 +44,12 @@ on:
         required: false
         type: boolean
         default: false
+  repository_dispatch:
+    types: [version-monitor-docker]
+    inputs:
+      version:
+        description: 'Version to build (passed from version monitor)'
+        required: false
 
 env:
   DOTNET_VERSION: '10.0'
@@ -66,10 +90,17 @@ jobs:
       - name: Determine Version and Platform
         id: config
         run: |
-          # Determine version
+          # Determine version - priority order:
+          # 1. workflow_dispatch input (manual trigger)
+          # 2. repository_dispatch client_payload (version monitor trigger)
+          # 3. Git tag push
+          # 4. Branch push (defaults to 'latest')
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
-            echo "Using manual version: ${VERSION}"
+            echo "Using manual version from workflow_dispatch: ${VERSION}"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+            echo "Using version from repository_dispatch: ${VERSION}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             # Check if it's a tag push
             if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
