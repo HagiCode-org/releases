@@ -136,7 +136,7 @@ jobs:
         run: |
           VERSION="${{ steps.config.outputs.version }}"
           PLATFORM="${{ steps.config.outputs.platform }}"
-          IMAGE_NAME="hagicode/hagicode"
+          IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
           DRY_RUN="${{ inputs.dry_run }}"
 
@@ -202,7 +202,7 @@ jobs:
         run: |
           VERSION="${{ steps.config.outputs.version }}"
           PLATFORM="${{ steps.config.outputs.platform }}"
-          IMAGE_NAME="hagicode/hagicode"
+          IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
           BUILD_DATE=$(date -u +"%Y-%m-%d")
           BASE_IMAGE="${REGISTRY}/${IMAGE_NAME}:base"
@@ -254,7 +254,7 @@ jobs:
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          IMAGE_NAME="hagicode/hagicode"
+          IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
 
           # Parse version parts
@@ -286,7 +286,7 @@ jobs:
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          IMAGE_NAME="hagicode/hagicode"
+          IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
 
           echo "Verifying images in registry..."
