@@ -111,6 +111,49 @@ AI agents are available in all Docker images pushed to registries, enabling:
 - Spec-driven workflows for changes
 - Multi-architecture support for AI tools
 
+## Version Format Requirements
+
+**Version Format Validation**: This repository enforces strict version number formatting to ensure consistency across the release pipeline.
+
+### Required Version Format
+
+All version numbers must:
+- **Start with a digit** (no "v" prefix allowed)
+- **Contain only** alphanumeric characters, dots (.), hyphens (-), or underscores (_)
+- **Follow semantic versioning** (semver) convention (e.g., `1.2.3`)
+
+### Valid Examples
+- `1.2.3` - Standard semver
+- `0.1.0` - Leading zero allowed
+- `1.2.3-beta.1` - Pre-release identifier
+- `1.2.3-rc.1` - Release candidate
+- `1.0.0-alpha` - Alpha release
+
+### Invalid Examples (will be rejected)
+- `v1.2.3` - v prefix is NOT allowed
+- `1.2.3 beta` - Contains space
+- `1.2.3@feature` - Contains special character @
+- `1/2/3` - Contains slash
+- `` - Empty string
+
+### Validation Points
+
+1. **Version Monitor** (`Build.Targets.VersionMonitor.cs`)
+   - Validates versions from Azure Blob Storage
+   - Skips invalid versions with warning logs
+
+2. **Docker Build Workflow** (`.github/workflows/docker-build.yml`)
+   - Validates version format in "Determine Version and Platform" step
+   - Fails workflow with clear error message if format is invalid
+
+### Error Message Example
+
+```
+Error: Invalid version format 'v1.2.3'
+Version must start with a digit and only contain letters, numbers, dots, hyphens, or underscores.
+Example: 1.2.3, 1.2.3-beta.1
+```
+
 ## Troubleshooting
 
 ### Claude Code Not Working

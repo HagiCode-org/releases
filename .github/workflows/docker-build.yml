@@ -128,6 +128,18 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+          # Version format validation (skip for 'latest')
+          if [ "${VERSION}" != "latest" ]; then
+            # Version must start with a digit and contain only letters, numbers, dots, hyphens, or underscores
+            if ! [[ "${VERSION}" =~ ^[0-9][0-9A-Za-z._-]*$ ]]; then
+              echo "::error::Invalid version format '${VERSION}'"
+              echo "Version must start with a digit and only contain letters, numbers, dots, hyphens, or underscores."
+              echo "Example: 1.2.3, 1.2.3-beta.1"
+              exit 1
+            fi
+            echo "✓ Version format validated: ${VERSION}"
+          fi
+
           # Determine platform - default to 'all' if not specified
           if [ -z "${{ inputs.platform }}" ]; then
             # When platform is not specified or empty, default to 'all'
@@ -216,7 +228,7 @@ jobs:
         if: steps.config.outputs.version != 'latest'
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          # Remove v prefix for Docker image tags
+          # Remove v prefix for Docker image tags (for backward compatibility with tag push trigger)
           CLEAN_VERSION="${VERSION#v}"
           PLATFORM="${{ steps.config.outputs.platform }}"
           IMAGE_NAME="hagicode"
@@ -271,7 +283,7 @@ jobs:
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          # Remove v prefix for tag operations
+          # Remove v prefix for tag operations (for backward compatibility with tag push trigger)
           CLEAN_VERSION="${VERSION#v}"
           IMAGE_NAME="hagicode"
           REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
@@ -310,8 +322,66 @@ jobs:
 
           echo "Verifying images in registry..."
 
-          docker manifest inspect ${REGISTRY}/${IMAGE_NAME}:${VERSION} || echo "Warning: Failed to verify version tag"
-          docker manifest inspect ${REGISTRY}/${IMAGE_NAME}:latest || echo "Warning: Failed to verify latest tag"
+          # Parse version parts for tag verification
+          MAJOR=$(echo ${VERSION} | cut -d. -f1)
+          MINOR=$(echo ${VERSION} | cut -d. -f2)
+
+          # Multi-architecture verification requirements:
+          # - All published images MUST contain both linux/amd64 and linux/arm64 architectures
+          # - Verification is done for each tag: version, major.minor, major, and latest (if stable)
+          # - If either architecture is missing, the workflow fails with a clear error message
+          # - This ensures users on both AMD64 and ARM64 platforms can pull compatible images
+
+          # Verify image architectures for each tag
+          for TAG in "${VERSION}" "${MAJOR}.${MINOR}" "${MAJOR}"; do
+            echo "Verifying tag: ${TAG}"
+
+            # Extract architecture list from manifest using jq
+            # jq is required for parsing the JSON output of docker manifest inspect
+            ARCHITECTURES=$(docker manifest inspect ${REGISTRY}/${IMAGE_NAME}:${TAG} 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
+
+            if [ -z "${ARCHITECTURES}" ]; then
+              echo "::error::Failed to inspect manifest for tag ${TAG}"
+              exit 1
+            fi
+
+            echo "Found architectures for tag ${TAG}: ${ARCHITECTURES}"
+
+            # Check if amd64 is present (required for AMD64/x86_64 platforms)
+            if ! echo "${ARCHITECTURES}" | grep -q "amd64"; then
+              echo "::error::Tag ${TAG} does not contain amd64 architecture"
+              exit 1
+            fi
+
+            # Check if arm64 is present (required for ARM64/AArch64 platforms)
+            if ! echo "${ARCHITECTURES}" | grep -q "arm64"; then
+              echo "::error::Tag ${TAG} does not contain arm64 architecture"
+              exit 1
+            fi
+
+            echo "✓ Tag ${TAG} contains both amd64 and arm64 architectures"
+          done
+
+          # Verify latest tag only for stable releases
+          if [[ ! ${VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] && [[ ! ${VERSION} =~ -(rc|beta|alpha|preview|dev) ]]; then
+            echo "Verifying tag: latest"
+            ARCHITECTURES=$(docker manifest inspect ${REGISTRY}/${IMAGE_NAME}:latest 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
+
+            if [ -z "${ARCHITECTURES}" ]; then
+              echo "::warning::Failed to inspect manifest for tag latest (may not exist)"
+            else
+              echo "Found architectures for tag latest: ${ARCHITECTURES}"
+
+              if ! echo "${ARCHITECTURES}" | grep -q "amd64" || ! echo "${ARCHITECTURES}" | grep -q "arm64"; then
+                echo "::error::Tag latest does not contain both amd64 and arm64 architectures"
+                exit 1
+              fi
+
+              echo "✓ Tag latest contains both amd64 and arm64 architectures"
+            fi
+          fi
+
+          echo "All image tags verified successfully!"
 
       - name: Post Login to Edge ACR
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
@@ -334,7 +404,7 @@ jobs:
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         run: |
           VERSION="${{ steps.config.outputs.version }}"
-          # Remove v prefix for Docker image tags
+          # Remove v prefix for Docker image tags (for backward compatibility with tag push trigger)
           CLEAN_VERSION="${VERSION#v}"
           IMAGE_NAME="hagicode"
           AZURE_REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
@@ -408,27 +478,45 @@ jobs:
 
           echo "Verifying images in Aliyun ACR..."
 
-          # Verify base image
-          echo "Checking base image..."
-          docker manifest inspect ${ALIYUN_IMAGE_NAME}:base || echo "Warning: Failed to verify base tag"
+          # Multi-architecture verification for Aliyun ACR:
+          # - Same requirements as Azure ACR: both amd64 and arm64 must be present
+          # - Verified for all pushed tags: version, major.minor, major, and latest (if stable)
+          # - Ensures Aliyun ACR images are also multi-arch compatible
 
-          # Verify version tag
-          echo "Checking version tag..."
-          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${CLEAN_VERSION} || echo "Warning: Failed to verify version tag"
-
-          # Verify major.minor tag
-          echo "Checking major.minor tag..."
-          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${MAJOR}.${MINOR} || echo "Warning: Failed to verify major.minor tag"
-
-          # Verify major tag
-          echo "Checking major tag..."
-          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${MAJOR} || echo "Warning: Failed to verify major tag"
-
-          # Verify latest tag (only for stable releases)
+          # Define tags to verify
+          TAGS=("${CLEAN_VERSION}" "${MAJOR}.${MINOR}" "${MAJOR}")
           if [ "$IS_STABLE" = "true" ]; then
-            echo "Checking latest tag..."
-            docker manifest inspect ${ALIYUN_IMAGE_NAME}:latest || echo "Warning: Failed to verify latest tag"
+            TAGS+=("latest")
           fi
+
+          # Verify each tag's architectures
+          for TAG in "${TAGS[@]}"; do
+            echo "Verifying tag: ${TAG}"
+
+            # Extract architecture list from manifest using jq
+            ARCHITECTURES=$(docker manifest inspect ${ALIYUN_IMAGE_NAME}:${TAG} 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
+
+            if [ -z "${ARCHITECTURES}" ]; then
+              echo "::error::Failed to inspect manifest for tag ${TAG} in Aliyun ACR"
+              exit 1
+            fi
+
+            echo "Found architectures for tag ${TAG}: ${ARCHITECTURES}"
+
+            # Check if amd64 is present (required for AMD64/x86_64 platforms)
+            if ! echo "${ARCHITECTURES}" | grep -q "amd64"; then
+              echo "::error::Tag ${TAG} in Aliyun ACR does not contain amd64 architecture"
+              exit 1
+            fi
+
+            # Check if arm64 is present (required for ARM64/AArch64 platforms)
+            if ! echo "${ARCHITECTURES}" | grep -q "arm64"; then
+              echo "::error::Tag ${TAG} in Aliyun ACR does not contain arm64 architecture"
+              exit 1
+            fi
+
+            echo "✓ Tag ${TAG} contains both amd64 and arm64 architectures"
+          done
 
           echo "Aliyun ACR image verification completed!"
 

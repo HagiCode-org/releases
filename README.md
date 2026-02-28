@@ -22,6 +22,7 @@ The HagiCode release repository manages:
 - Azure Blob Storage access (SAS URL)
 - GitHub personal access token (PAT)
 - Edge ACR credentials (username, password, registry)
+- jq (for JSON parsing in multi-arch verification)
 
 ### Building Locally
 
@@ -30,7 +31,7 @@ The HagiCode release repository manages:
 git clone https://github.com/your-org/hagicode-release.git
 cd hagicode-release
 
-# Run Nuke build
+# Run Nuke build (use version without v prefix)
 ./build.sh DockerRelease \
   --ReleaseVersion "1.2.3" \
   --AzureBlobSasUrl "https://..." \
@@ -39,6 +40,17 @@ cd hagicode-release
   --AzureAcrPassword "password" \
   --DockerPlatform "all"
 ```
+
+### Version Format Requirements
+
+**Important**: Version numbers must NOT include a "v" prefix.
+
+- **Correct**: `1.2.3`, `1.2.3-beta.1`
+- **Incorrect**: `v1.2.3`, `1.2.3 beta`
+
+Version format is validated automatically in:
+1. Version Monitor (skips invalid versions with warning)
+2. Docker Build workflow (fails with error message)
 
 ## Build Targets
 
@@ -366,7 +378,22 @@ docker run -v ~/claude-config:/claude-mount hagicode.azurecr.io/hagicode:1.2.3
 4. **App Dockerfile Generation**: Generate Dockerfile from template with version injection
 5. **Application Image Build**: Build application image with base image
 6. **Edge ACR Push**: Push images to registry with version tags
-7. **Verification**: Verify images are available in registry
+7. **Multi-Architecture Verification**: Verify images contain both amd64 and arm64 architectures
+8. **Aliyun ACR Sync**: Replicate images to Aliyun Container Registry with verification
+
+### Multi-Architecture Verification
+
+All published Docker images are verified to contain both linux/amd64 and linux/arm64 architectures:
+
+- **Azure ACR**: After push, `Verify Images in Registry` step checks manifest for both architectures
+- **Aliyun ACR**: After sync, `Verify Images in Aliyun ACR` step verifies all pushed tags
+
+If either architecture is missing, the workflow fails with a clear error message:
+```
+Error: Tag 1.2.3 does not contain amd64 architecture
+```
+
+This ensures users on both AMD64 and ARM64 platforms can pull compatible images.
 
 ### Version Tagging Strategy
 

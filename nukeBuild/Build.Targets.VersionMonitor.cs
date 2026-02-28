@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 /// <summary>
 /// Version Monitor target - monitors Azure Blob Storage for new versions and triggers GitHub releases
@@ -153,13 +154,47 @@ partial class Build
         }
     }
 
+    /// <summary>
+    /// Validates version format to ensure it conforms to Docker tag naming conventions.
+    /// Valid versions must start with a digit and contain only alphanumeric characters, dots, hyphens, or underscores.
+    /// This ensures version numbers do not have a "v" prefix which would cause inconsistencies in the build workflow.
+    /// </summary>
+    /// <param name="version">The version string to validate</param>
+    /// <returns>True if the version format is valid, false otherwise</returns>
+    bool IsValidVersionFormat(string version)
+    {
+        // Docker tag specification: only allows letters, numbers, dots, hyphens, underscores
+        // Must start with a digit (to ensure no "v" prefix)
+        if (string.IsNullOrWhiteSpace(version))
+            return false;
+
+        // Trim whitespace
+        var trimmedVersion = version.Trim();
+
+        // Must start with a digit (ensures no "v" prefix)
+        if (!char.IsDigit(trimmedVersion[0]))
+            return false;
+
+        // Allowed characters: numbers, letters, dots, hyphens, underscores
+        var allowedPattern = @"^[0-9A-Za-z._-]+$";
+        return Regex.IsMatch(trimmedVersion, allowedPattern);
+    }
+
     List<string> FindNewVersions(List<string> azureVersions, List<string> githubReleases)
     {
         var newVersions = new List<string>();
 
         foreach (var version in azureVersions)
         {
+            // Validate version format before processing
+            if (!IsValidVersionFormat(version))
+            {
+                Log.Warning("Skipping invalid version format: {Version} (must start with digit and contain only letters, numbers, dots, hyphens, or underscores)", version);
+                continue;
+            }
+
             // Check if this version (with or without 'v' prefix) exists in GitHub releases
+            // This is for backward compatibility with existing releases that may have v-prefixed tags
             var versionWithV = $"v{version}";
             var hasVersion = githubReleases.Contains(version, StringComparer.OrdinalIgnoreCase) ||
                            githubReleases.Contains(versionWithV, StringComparer.OrdinalIgnoreCase);
