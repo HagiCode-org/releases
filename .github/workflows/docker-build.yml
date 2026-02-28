@@ -134,7 +134,14 @@ jobs:
             PLATFORM="all"
             echo "Using default platform: ${PLATFORM}"
           else
-            PLATFORM="${{ inputs.platform }}"
+            # Convert platform format from "linux-amd64" to "linux/amd64" for Docker buildx
+            RAW_PLATFORM="${{ inputs.platform }}"
+            case "${RAW_PLATFORM}" in
+              "linux-amd64") PLATFORM="linux/amd64" ;;
+              "linux-arm64") PLATFORM="linux/arm64" ;;
+              "all") PLATFORM="all" ;;
+              *) PLATFORM="${RAW_PLATFORM}" ;;
+            esac
             echo "Using specified platform: ${PLATFORM}"
           fi
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
