@@ -418,8 +418,11 @@ jobs:
           CLEAN_VERSION="${{ steps.generate-publish-result.outputs.clean_version }}"
           FILE_NAME="azure-publish-results-${CLEAN_VERSION}.json"
 
-          # Use VERSION as release tag (it already includes v prefix from git tag)
+          # Use VERSION as release tag - add v prefix if not present
           RELEASE_TAG="${VERSION}"
+          if [[ ! "${VERSION}" =~ ^v ]]; then
+            RELEASE_TAG="v${VERSION}"
+          fi
 
           echo "Uploading ${FILE_NAME} to release ${RELEASE_TAG}..."
 
