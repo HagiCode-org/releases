@@ -127,46 +127,52 @@ The repository includes GitHub Actions workflows that are triggered automaticall
 |----------|----------|-------------|
 | `version-monitor.yml` | Push to main, Schedule (every 4 hours) | Monitors Azure Blob for new versions |
 | `github-release-workflow.yml` | Repository dispatch (`version-monitor-release`) | Creates GitHub releases |
-| `docker-build.yml` | Tag push (v*.*.*), Repository dispatch (`version-monitor-docker`) | Builds and publishes Docker images |
-| `azure-to-aliyun-image-sync.yml` | Workflow run completion (docker-build), Manual | Syncs Azure images to Aliyun ACR |
+| `docker-build.yml` | Tag push (v*.*.*), Repository dispatch (`version-monitor-docker`) | Builds and publishes Docker images to Azure ACR and Aliyun ACR |
 
 ### Publish Result Tracking
 
-The `docker-build.yml` workflow automatically generates a publish result JSON file after successfully publishing images to Azure ACR. This file is uploaded to the GitHub Release and contains:
+The `docker-build.yml` workflow automatically generates a publish result JSON file after successfully publishing images to both Azure ACR and Aliyun ACR. This file is uploaded to the GitHub Release and contains:
 
 - **Version**: The semantic version of the release
 - **Published At**: ISO 8601 timestamp of publish time
 - **Azure Registry**: The Azure Container Registry URL
-- **Azure Images**: Array of published image URLs (base, version, major/minor tags)
+- **Azure Images**: Array of published image URLs (base, version, major/minor, major, latest tags)
+- **Aliyun Registry**: The Aliyun Container Registry URL
+- **Aliyun Images**: Array of published image URLs to Aliyun ACR
 - **GitHub Run Info**: Workflow run ID and URL for traceability
 
-The publish result file is named `azure-publish-results-{version}.json` and can be found in the Release's download section.
+The publish result file is named `publish-results-{version}.json` and can be found in the Release's download section.
 
-### Aliyun Image Sync
+### Aliyun ACR Integration
 
-The `azure-to-aliyun-image-sync.yml` workflow automatically syncs Docker images from Azure ACR to Aliyun ACR (Alibaba Cloud Container Registry).
+The Aliyun ACR push is now integrated directly into `docker-build.yml`. After successfully building and pushing images to Azure ACR, the workflow automatically:
 
-#### Sync Modes
+1. **Logs in to Aliyun ACR** using credentials from GitHub Secrets
+2. **Retags and pushes images** from Azure ACR to Aliyun ACR using `docker buildx imagetools create`
+3. **Generates version tags** (major.minor, major) for both registries
+4. **Handles pre-release versions** - skips `latest` tag for pre-release versions (rc, beta, alpha, preview, dev)
 
-1. **Automatic Trigger**: Runs automatically when `docker-build.yml` completes successfully
-2. **Manual Trigger**: Can be triggered manually with optional version parameter
+#### Image Tags
 
-#### Using Manual Trigger
+For **stable releases** (e.g., `1.2.3`):
+- `base` - Base image
+- `1.2.3` - Full version
+- `1.2` - Major.minor
+- `1` - Major
+- `latest` - Latest stable
 
-1. Go to **Actions** tab
-2. Select **Azure to Aliyun Image Sync**
-3. Click **Run workflow**
-4. Configure:
-   - **VERSION**: Optional version to sync (e.g., `v1.2.3` or `1.2.3`)
-   - Leave empty to sync the latest release
+For **pre-release versions** (e.g., `1.2.3-rc.1`):
+- `base` - Base image
+- `1.2.3-rc.1` - Full version
+- `1.2` - Major.minor
+- `1` - Major
+- (no `latest` tag)
 
-#### How It Works
+#### Requirements
 
-1. **Version Discovery**: Fetches the latest release or specific version from GitHub
-2. **Publish Result Download**: Downloads `azure-publish-results-{version}.json` from the Release
-3. **Image Extraction**: Parses the JSON to extract Azure image URLs
-4. **Multi-Arch Sync**: Syncs all images (AMD64 and ARM64) to Aliyun ACR
-5. **Verification**: Verifies images are available in Aliyun ACR
+The following GitHub Secrets must be configured:
+- `ALIYUN_ACR_USERNAME` - Aliyun ACR username
+- `ALIYUN_ACR_PASSWORD` - Aliyun ACR password
 
 #### Publish Result JSON Schema
 
@@ -191,6 +197,51 @@ The `azure-to-aliyun-image-sync.yml` workflow automatically syncs Docker images 
         "name": "hagicode",
         "tag": "1.2.3",
         "fullUrl": "hagicode.azurecr.io/hagicode:1.2.3"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1.2",
+        "fullUrl": "hagicode.azurecr.io/hagicode:1.2"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1",
+        "fullUrl": "hagicode.azurecr.io/hagicode:1"
+      },
+      {
+        "name": "hagicode",
+        "tag": "latest",
+        "fullUrl": "hagicode.azurecr.io/hagicode:latest"
+      }
+    ]
+  },
+  "aliyun": {
+    "registry": "registry.cn-hangzhou.aliyuncs.com",
+    "images": [
+      {
+        "name": "hagicode",
+        "tag": "base",
+        "fullUrl": "registry.cn-hangzhou.aliyuncs.com/hagicode:base"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1.2.3",
+        "fullUrl": "registry.cn-hangzhou.aliyuncs.com/hagicode:1.2.3"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1.2",
+        "fullUrl": "registry.cn-hangzhou.aliyuncs.com/hagicode:1.2"
+      },
+      {
+        "name": "hagicode",
+        "tag": "1",
+        "fullUrl": "registry.cn-hangzhou.aliyuncs.com/hagicode:1"
+      },
+      {
+        "name": "hagicode",
+        "tag": "latest",
+        "fullUrl": "registry.cn-hangzhou.aliyuncs.com/hagicode:latest"
       }
     ]
   }

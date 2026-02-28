@@ -57,6 +57,11 @@ permissions:
 env:
   DOTNET_VERSION: '10.0'
   DOTNET_INSTALL_DIR: '/usr/share/dotnet'
+  # Azure ACR configuration
+  AZURE_ACR_REGISTRY: hagicode.azurecr.io
+  # Aliyun ACR configuration
+  ALIYUN_ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  ALIYUN_ACR_NAMESPACE: hagicode
 
 jobs:
   docker-build:
@@ -310,6 +315,125 @@ jobs:
           password: ${{ secrets.AZURE_ACR_PASSWORD }}
           logout: true
 
+      - name: Login to Aliyun ACR
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Push Images to Aliyun ACR
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        run: |
+          VERSION="${{ steps.config.outputs.version }}"
+          # Remove v prefix for Docker image tags
+          CLEAN_VERSION="${VERSION#v}"
+          IMAGE_NAME="hagicode"
+          AZURE_REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+          ALIYUN_REGISTRY="${{ env.ALIYUN_ACR_REGISTRY }}"
+          ALIYUN_NAMESPACE="${{ env.ALIYUN_ACR_NAMESPACE }}"
+          ALIYUN_IMAGE_NAME="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${IMAGE_NAME}"
+
+          # Parse version parts from clean version
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
+
+          # Check if this is a stable release (not pre-release)
+          IS_STABLE=true
+          if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]] || [[ ${CLEAN_VERSION} =~ (rc|beta|alpha|preview|dev)- ]]; then
+            IS_STABLE=false
+          fi
+
+          echo "Pushing images to Aliyun ACR..."
+          echo "Version: ${CLEAN_VERSION}, Stable: ${IS_STABLE}"
+
+          # Push base image to Aliyun ACR
+          echo "Pushing base image to Aliyun ACR..."
+          docker buildx imagetools create -t ${ALIYUN_IMAGE_NAME}:base ${AZURE_REGISTRY}/${IMAGE_NAME}:base
+          echo "Base image pushed to Aliyun ACR"
+
+          # Push version tag to Aliyun ACR
+          echo "Pushing version tag ${CLEAN_VERSION} to Aliyun ACR..."
+          docker buildx imagetools create -t ${ALIYUN_IMAGE_NAME}:${CLEAN_VERSION} ${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
+          echo "Version tag pushed to Aliyun ACR"
+
+          # Push major.minor tag to Aliyun ACR
+          echo "Pushing major.minor tag ${MAJOR}.${MINOR} to Aliyun ACR..."
+          docker buildx imagetools create -t ${ALIYUN_IMAGE_NAME}:${MAJOR}.${MINOR} ${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
+          echo "Major.minor tag pushed to Aliyun ACR"
+
+          # Push major tag to Aliyun ACR
+          echo "Pushing major tag ${MAJOR} to Aliyun ACR..."
+          docker buildx imagetools create -t ${ALIYUN_IMAGE_NAME}:${MAJOR} ${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
+          echo "Major tag pushed to Aliyun ACR"
+
+          # Push latest tag only for stable releases
+          if [ "$IS_STABLE" = "true" ]; then
+            echo "Pushing latest tag to Aliyun ACR..."
+            docker buildx imagetools create -t ${ALIYUN_IMAGE_NAME}:latest ${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}
+            echo "Latest tag pushed to Aliyun ACR"
+          else
+            echo "Skipped latest tag - pre-release version detected: ${CLEAN_VERSION}"
+          fi
+
+          echo "All images pushed to Aliyun ACR successfully!"
+
+      - name: Verify Images in Aliyun ACR
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        run: |
+          VERSION="${{ steps.config.outputs.version }}"
+          CLEAN_VERSION="${VERSION#v}"
+          IMAGE_NAME="hagicode"
+          ALIYUN_REGISTRY="${{ env.ALIYUN_ACR_REGISTRY }}"
+          ALIYUN_NAMESPACE="${{ env.ALIYUN_ACR_NAMESPACE }}"
+          ALIYUN_IMAGE_NAME="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${IMAGE_NAME}"
+
+          # Parse version parts
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
+
+          # Check if this is a stable release
+          IS_STABLE=true
+          if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]] || [[ ${CLEAN_VERSION} =~ (rc|beta|alpha|preview|dev)- ]]; then
+            IS_STABLE=false
+          fi
+
+          echo "Verifying images in Aliyun ACR..."
+
+          # Verify base image
+          echo "Checking base image..."
+          docker manifest inspect ${ALIYUN_IMAGE_NAME}:base || echo "Warning: Failed to verify base tag"
+
+          # Verify version tag
+          echo "Checking version tag..."
+          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${CLEAN_VERSION} || echo "Warning: Failed to verify version tag"
+
+          # Verify major.minor tag
+          echo "Checking major.minor tag..."
+          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${MAJOR}.${MINOR} || echo "Warning: Failed to verify major.minor tag"
+
+          # Verify major tag
+          echo "Checking major tag..."
+          docker manifest inspect ${ALIYUN_IMAGE_NAME}:${MAJOR} || echo "Warning: Failed to verify major tag"
+
+          # Verify latest tag (only for stable releases)
+          if [ "$IS_STABLE" = "true" ]; then
+            echo "Checking latest tag..."
+            docker manifest inspect ${ALIYUN_IMAGE_NAME}:latest || echo "Warning: Failed to verify latest tag"
+          fi
+
+          echo "Aliyun ACR image verification completed!"
+
+      - name: Logout from Aliyun ACR
+        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+          logout: true
+
       - name: Post Setup .NET SDK
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         uses: actions/setup-dotnet@v4
@@ -325,26 +449,66 @@ jobs:
           PLATFORM="${{ steps.config.outputs.platform }}"
           DRY_RUN="${{ inputs.dry_run }}"
 
+          # Remove v prefix for display
+          CLEAN_VERSION="${VERSION#v}"
+
+          # Parse version parts
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
+
+          # Check if this is a stable release
+          IS_STABLE=true
+          if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]] || [[ ${CLEAN_VERSION} =~ (rc|beta|alpha|preview|dev)- ]]; then
+            IS_STABLE=false
+          fi
+
           echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "- **Platform**: ${PLATFORM}" >> $GITHUB_STEP_SUMMARY
           echo "- **Dry Run**: ${DRY_RUN}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry**: ${{ secrets.AZURE_ACR_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Azure Registry**: ${{ secrets.AZURE_ACR_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Aliyun Registry**: ${{ env.ALIYUN_ACR_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
 
           if [ "${VERSION}" = "latest" ]; then
             echo "- **Status**: Test mode (no images built)" >> $GITHUB_STEP_SUMMARY
           else
             echo "- **Status**: Build and push completed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Azure ACR Tags" >> $GITHUB_STEP_SUMMARY
+            echo "- \`base\` - Base image" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${CLEAN_VERSION}\` - Version tag" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${MAJOR}.${MINOR}\` - Major.minor tag" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${MAJOR}\` - Major tag" >> $GITHUB_STEP_SUMMARY
+            if [ "$IS_STABLE" = "true" ]; then
+              echo "- \`latest\` - Latest tag (stable release)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- \`latest\` - Skipped (pre-release version)" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Aliyun ACR Tags" >> $GITHUB_STEP_SUMMARY
+            ALIYUN_FULL_IMAGE="${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.ALIYUN_ACR_NAMESPACE }}/${IMAGE_NAME}"
+            echo "- \`base\` - Base image" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${CLEAN_VERSION}\` - Version tag" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${MAJOR}.${MINOR}\` - Major.minor tag" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${MAJOR}\` - Major tag" >> $GITHUB_STEP_SUMMARY
+            if [ "$IS_STABLE" = "true" ]; then
+              echo "- \`latest\` - Latest tag (stable release)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- \`latest\` - Skipped (pre-release version)" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Full Aliyun Image Name**: \`${ALIYUN_FULL_IMAGE}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Generate Azure Publish Result JSON
+      - name: Generate Publish Result JSON
         if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
         id: generate-publish-result
         run: |
           VERSION="${{ steps.config.outputs.version }}"
           IMAGE_NAME="hagicode"
-          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+          AZURE_REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+          ALIYUN_REGISTRY="${{ env.ALIYUN_ACR_REGISTRY }}"
           PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           GITHUB_RUN_ID="${{ github.run_id }}"
           GITHUB_REPO="${{ github.repository }}"
@@ -363,23 +527,39 @@ jobs:
             IS_STABLE=false
           fi
 
-          # Build images array - only include tags that were actually pushed
+          # Aliyun image name includes namespace
+          ALIYUN_IMAGE_NAME="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${IMAGE_NAME}"
+
+          # Build Azure images array - only include tags that were actually pushed
           if [ "$IS_STABLE" = "true" ]; then
             # Stable release: includes base, version, major.minor, major, latest
-            IMAGES_JSON='[
-              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:base'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "latest", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:latest'"}
+            AZURE_IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${MAJOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "latest", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:latest'"}
+            ]'
+            ALIYUN_IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${ALIYUN_IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${MAJOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "latest", "fullUrl": "'${ALIYUN_IMAGE_NAME}:latest'"}
             ]'
           else
             # Pre-release: includes base, version, major.minor, major (no latest)
-            IMAGES_JSON='[
-              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:base'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
-              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}'"}
+            AZURE_IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${AZURE_REGISTRY}/${IMAGE_NAME}:${MAJOR}'"}
+            ]'
+            ALIYUN_IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${ALIYUN_IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${ALIYUN_IMAGE_NAME}:${MAJOR}'"}
             ]'
           fi
 
@@ -390,8 +570,10 @@ jobs:
             --arg runId "${GITHUB_RUN_ID}" \
             --arg runUrl "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}" \
             --arg repository "${GITHUB_REPO}" \
-            --arg registry "${REGISTRY}" \
-            --argjson images "${IMAGES_JSON}" \
+            --arg azureRegistry "${AZURE_REGISTRY}" \
+            --arg aliyunRegistry "${ALIYUN_REGISTRY}" \
+            --argjson azureImages "${AZURE_IMAGES_JSON}" \
+            --argjson aliyunImages "${ALIYUN_IMAGES_JSON}" \
             '{
               version: $version,
               publishedAt: $publishedAt,
@@ -401,14 +583,18 @@ jobs:
                 repository: $repository
               },
               azure: {
-                registry: $registry,
-                images: $images
+                registry: $azureRegistry,
+                images: $azureImages
+              },
+              aliyun: {
+                registry: $aliyunRegistry,
+                images: $aliyunImages
               }
-            }' > azure-publish-results-${CLEAN_VERSION}.json
+            }' > publish-results-${CLEAN_VERSION}.json
 
-          echo "Generated Azure publish result JSON:"
-          cat azure-publish-results-${CLEAN_VERSION}.json
-          echo "publish_result_file=azure-publish-results-${CLEAN_VERSION}.json" >> $GITHUB_OUTPUT
+          echo "Generated publish result JSON:"
+          cat publish-results-${CLEAN_VERSION}.json
+          echo "publish_result_file=publish-results-${CLEAN_VERSION}.json" >> $GITHUB_OUTPUT
           echo "clean_version=${CLEAN_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Upload Publish Result to GitHub Release
@@ -416,7 +602,7 @@ jobs:
         run: |
           VERSION="${{ steps.config.outputs.version }}"
           CLEAN_VERSION="${{ steps.generate-publish-result.outputs.clean_version }}"
-          FILE_NAME="azure-publish-results-${CLEAN_VERSION}.json"
+          FILE_NAME="publish-results-${CLEAN_VERSION}.json"
 
           # Use VERSION as release tag - add v prefix if not present
           RELEASE_TAG="${VERSION}"
