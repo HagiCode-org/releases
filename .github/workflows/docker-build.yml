@@ -357,6 +357,32 @@ jobs:
           MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
           MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
 
+          # Check if this is a stable release (not pre-release)
+          IS_STABLE=true
+          if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]]; then
+            IS_STABLE=false
+          fi
+
+          # Build images array - only include tags that were actually pushed
+          if [ "$IS_STABLE" = "true" ]; then
+            # Stable release: includes base, version, major.minor, major, latest
+            IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "latest", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:latest'"}
+            ]'
+          else
+            # Pre-release: includes base, version, major.minor, major (no latest)
+            IMAGES_JSON='[
+              {"name": "'${IMAGE_NAME}'", "tag": "base", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:base'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${CLEAN_VERSION}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${CLEAN_VERSION}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}.${MINOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}.${MINOR}'"},
+              {"name": "'${IMAGE_NAME}'", "tag": "'${MAJOR}'", "fullUrl": "'${REGISTRY}/${IMAGE_NAME}:${MAJOR}'"}
+            ]'
+          fi
+
           # Generate JSON using jq
           jq -n \
             --arg version "${CLEAN_VERSION}" \
@@ -365,7 +391,7 @@ jobs:
             --arg runUrl "${GITHUB_SERVER_URL}/${GITHUB_REPO}/actions/runs/${GITHUB_RUN_ID}" \
             --arg repository "${GITHUB_REPO}" \
             --arg registry "${REGISTRY}" \
-            --arg imageName "${IMAGE_NAME}" \
+            --argjson images "${IMAGES_JSON}" \
             '{
               version: $version,
               publishedAt: $publishedAt,
@@ -376,13 +402,7 @@ jobs:
               },
               azure: {
                 registry: $registry,
-                images: [
-                  { name: $imageName, tag: "base", fullUrl: ($registry + "/" + $imageName + ":base") },
-                  { name: $imageName, tag: $version, fullUrl: ($registry + "/" + $imageName + ":" + $version) },
-                  { name: $imageName, tag: ($version | split(".")[0] + "." + ($version | split(".")[1])), fullUrl: ($registry + "/" + $imageName + ":" + ($version | split(".")[0] + "." + ($version | split(".")[1]))) },
-                  { name: $imageName, tag: ($version | split(".")[0]), fullUrl: ($registry + "/" + $imageName + ":" + ($version | split(".")[0])) },
-                  { name: $imageName, tag: "latest", fullUrl: ($registry + "/" + $imageName + ":latest") }
-                ]
+                images: $images
               }
             }' > azure-publish-results-${CLEAN_VERSION}.json
 

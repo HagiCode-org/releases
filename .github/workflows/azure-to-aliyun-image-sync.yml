@@ -194,34 +194,114 @@ jobs:
 
           echo "Available tags: $TAGS"
 
-          # Filter version tags (v*.*.*), special tags, and tags matching the specific version
-          VERSIONS=""
+          # Initialize VERSIONS array
+          declare -a VERSION_ARRAY=()
 
-          # First, check if we can find tags matching the specific version
-          if [ "$VERSION" != "latest" ]; then
-            # Add the exact version tag (with and without v prefix)
-            if echo "$TAGS" | grep -q "^${VERSION}$"; then
-              VERSIONS="${VERSIONS}${VERSIONS:+,}${VERSION}"
-            fi
-            if echo "$TAGS" | grep -q "^v${VERSION}$"; then
-              VERSIONS="${VERSIONS}${VERSIONS:+,}v${VERSION}"
-            fi
-          fi
-
-          # Add special tags if they exist
+          # Add special tags (base, latest) if they exist
           for tag in $TAGS; do
-            if [[ "$tag" == "latest" ]] || [[ "$tag" == "base" ]]; then
-              # Avoid duplicates
-              if ! echo "$VERSIONS" | grep -q "$tag"; then
-                VERSIONS="${VERSIONS}${VERSIONS:+,}${tag}"
-              fi
+            if [[ "$tag" == "base" ]] || [[ "$tag" == "latest" ]]; then
+              VERSION_ARRAY+=("$tag")
+              echo "Added special tag: $tag"
             fi
           done
 
-          # If no versions found, use latest as fallback
+          # If specific version is provided (not latest), add version-related tags
+          if [ "$VERSION" != "latest" ] && [ "$VERSION" != "0.1.0-beta.15" ]; then
+            # Parse version parts - handle both v0.1.0-beta.15 and 0.1.0-beta.15 formats
+            CLEAN_VERSION="${VERSION#v}"
+
+            # Extract version without pre-release suffix for major/minor tags
+            BASE_VERSION="${CLEAN_VERSION%%-*}"
+            if [ "$BASE_VERSION" = "$CLEAN_VERSION" ]; then
+              # No pre-release suffix
+              BASE_VERSION="${CLEAN_VERSION}"
+            fi
+
+            # Split version parts
+            MAJOR=$(echo ${BASE_VERSION} | cut -d. -f1)
+            MINOR=$(echo ${BASE_VERSION} | cut -d. -f2)
+            PATCH=$(echo ${BASE_VERSION} | cut -d. -f3)
+
+            echo "Version parts: MAJOR=$MAJOR, MINOR=$MINOR, PATCH=$PATCH, FULL=$CLEAN_VERSION"
+
+            # Add full version tag (with and without v prefix)
+            if echo "$TAGS" | grep -q "^${CLEAN_VERSION}$"; then
+              VERSION_ARRAY+=("${CLEAN_VERSION}")
+              echo "Added full version: ${CLEAN_VERSION}"
+            fi
+            if echo "$TAGS" | grep -q "^v${CLEAN_VERSION}$"; then
+              VERSION_ARRAY+=("v${CLEAN_VERSION}")
+              echo "Added v-prefixed version: v${CLEAN_VERSION}"
+            fi
+
+            # Add major.minor tag (e.g., 0.1)
+            if [ -n "$MAJOR" ] && [ -n "$MINOR" ]; then
+              MAJOR_MINOR="${MAJOR}.${MINOR}"
+              if echo "$TAGS" | grep -q "^${MAJOR_MINOR}$"; then
+                VERSION_ARRAY+=("${MAJOR_MINOR}")
+                echo "Added major.minor: ${MAJOR_MINOR}"
+              fi
+            fi
+
+            # Add major tag (e.g., 0)
+            if [ -n "$MAJOR" ]; then
+              if echo "$TAGS" | grep -q "^${MAJOR}$"; then
+                VERSION_ARRAY+=("${MAJOR}")
+                echo "Added major: ${MAJOR}"
+              fi
+            fi
+
+            # Add patch tag if exists (e.g., 0.1.0)
+            if [ -n "$PATCH" ]; then
+              FULL_SEMANTIC="${MAJOR}.${MINOR}.${PATCH}"
+              if echo "$TAGS" | grep -q "^${FULL_SEMANTIC}$"; then
+                VERSION_ARRAY+=("${FULL_SEMANTIC}")
+                echo "Added full semantic: ${FULL_SEMANTIC}"
+              fi
+            fi
+          fi
+
+          # If VERSION is 0.1.0-beta.15 (or similar), add all related tags
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-.*$ ]]; then
+            echo "Processing pre-release version: $VERSION"
+            CLEAN_VERSION="${VERSION#v}"
+            BASE_VERSION="${CLEAN_VERSION%%-*}"
+
+            MAJOR=$(echo ${BASE_VERSION} | cut -d. -f1)
+            MINOR=$(echo ${BASE_VERSION} | cut -d. -f2)
+            PATCH=$(echo ${BASE_VERSION} | cut -d. -f3)
+
+            # Add full semantic version
+            if echo "$TAGS" | grep -q "^${BASE_VERSION}$"; then
+              VERSION_ARRAY+=("${BASE_VERSION}")
+              echo "Added base semantic: ${BASE_VERSION}"
+            fi
+
+            # Add major.minor
+            if [ -n "$MAJOR" ] && [ -n "$MINOR" ]; then
+              MAJOR_MINOR="${MAJOR}.${MINOR}"
+              if echo "$TAGS" | grep -q "^${MAJOR_MINOR}$"; then
+                VERSION_ARRAY+=("${MAJOR_MINOR}")
+                echo "Added major.minor: ${MAJOR_MINOR}"
+              fi
+            fi
+
+            # Add major
+            if [ -n "$MAJOR" ]; then
+              if echo "$TAGS" | grep -q "^${MAJOR}$"; then
+                VERSION_ARRAY+=("${MAJOR}")
+                echo "Added major: ${MAJOR}"
+              fi
+            fi
+          fi
+
+          # Remove duplicates
+          VERSIONS=$(echo "${VERSION_ARRAY[@]}" | tr ' ' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          # If no versions found, use latest and base as fallback
           if [ -z "$VERSIONS" ]; then
-            VERSIONS="latest"
-            echo "No matching tags found, using latest"
+            VERSIONS="base,latest"
+            echo "No matching tags found, using default tags: base,latest"
           fi
 
           echo "azure_registry=${SOURCE_REGISTRY}" >> $GITHUB_OUTPUT
