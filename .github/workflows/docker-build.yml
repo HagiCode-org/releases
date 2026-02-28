@@ -441,14 +441,6 @@ jobs:
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
           logout: true
 
-      - name: Post Setup .NET SDK
-        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
-        uses: actions/setup-dotnet@v4
-
-      - name: Post Checkout code
-        if: steps.config.outputs.version != 'latest' && (inputs.dry_run != 'true')
-        uses: actions/checkout@v4
-
       - name: Summary
         if: steps.config.outputs.version != 'latest'
         run: |
