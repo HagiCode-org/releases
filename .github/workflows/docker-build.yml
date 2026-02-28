@@ -322,6 +322,38 @@ jobs:
 
           echo "Verifying images in registry..."
 
+          # Wait for ACR propagation - manifests may take a few seconds to be available
+          echo "Waiting for ACR to propagate images..."
+          for TAG in "${VERSION}" "${MAJOR}.${MINOR}" "${MAJOR}"; do
+            ATTEMPT=0
+            MAX_ATTEMPTS=10
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              # Extract architecture list from manifest using jq
+              # jq is required for parsing JSON output of docker manifest inspect
+              ARCHITECTURES=$(docker manifest inspect ${REGISTRY}/${IMAGE_NAME}:${TAG} 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
+
+              if [ -n "${ARCHITECTURES}" ]; then
+                echo "✓ Tag ${TAG} is ready (attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS)"
+                break
+              fi
+
+              ATTEMPT=$((ATTEMPT + 1))
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo "Tag ${TAG} not ready yet, waiting... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+                sleep 3
+              fi
+            done
+
+            if [ -z "${ARCHITECTURES}" ]; then
+              echo "::error::Timed out waiting for tag ${TAG} to become available in ACR"
+              echo "This may indicate a propagation delay or the image was not successfully pushed."
+              exit 1
+            fi
+          done
+
+          echo "All tags verified to be available in ACR"
+          echo ""
+
           # Parse version parts for tag verification
           MAJOR=$(echo ${VERSION} | cut -d. -f1)
           MINOR=$(echo ${VERSION} | cut -d. -f2)
@@ -334,7 +366,7 @@ jobs:
 
           # Verify image architectures for each tag
           for TAG in "${VERSION}" "${MAJOR}.${MINOR}" "${MAJOR}"; do
-            echo "Verifying tag: ${TAG}"
+            echo "Verifying architectures for tag: ${TAG}"
 
             # Extract architecture list from manifest using jq
             # jq is required for parsing the JSON output of docker manifest inspect
@@ -478,6 +510,37 @@ jobs:
 
           echo "Verifying images in Aliyun ACR..."
 
+          # Wait for Aliyun ACR propagation - manifests may take a few seconds to be available
+          echo "Waiting for Aliyun ACR to propagate images..."
+          for TAG in "${TAGS[@]}"; do
+            ATTEMPT=0
+            MAX_ATTEMPTS=10
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              # Extract architecture list from manifest using jq
+              ARCHITECTURES=$(docker manifest inspect ${ALIYUN_IMAGE_NAME}:${TAG} 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
+
+              if [ -n "${ARCHITECTURES}" ]; then
+                echo "✓ Tag ${TAG} is ready (attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS)"
+                break
+              fi
+
+              ATTEMPT=$((ATTEMPT + 1))
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo "Tag ${TAG} not ready yet, waiting... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+                sleep 3
+              fi
+            done
+
+            if [ -z "${ARCHITECTURES}" ]; then
+              echo "::error::Timed out waiting for tag ${TAG} to become available in Aliyun ACR"
+              echo "This may indicate a propagation delay or the image was not successfully pushed."
+              exit 1
+            fi
+          done
+
+          echo "All tags verified to be available in Aliyun ACR"
+          echo ""
+
           # Multi-architecture verification for Aliyun ACR:
           # - Same requirements as Azure ACR: both amd64 and arm64 must be present
           # - Verified for all pushed tags: version, major.minor, major, and latest (if stable)
@@ -491,7 +554,7 @@ jobs:
 
           # Verify each tag's architectures
           for TAG in "${TAGS[@]}"; do
-            echo "Verifying tag: ${TAG}"
+            echo "Verifying architectures for tag: ${TAG}"
 
             # Extract architecture list from manifest using jq
             ARCHITECTURES=$(docker manifest inspect ${ALIYUN_IMAGE_NAME}:${TAG} 2>/dev/null | jq -r '.[].Platform[].architecture' 2>/dev/null || echo "")
