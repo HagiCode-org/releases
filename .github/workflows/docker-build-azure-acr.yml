@@ -85,8 +85,6 @@ jobs:
           NUGEX_AzureAcrUsername: ${{ secrets.AZURE_ACR_USERNAME }}
           NUGEX_AzureAcrPassword: ${{ secrets.AZURE_ACR_PASSWORD }}
         run: |
-          cd nukeBuild
-
           # Determine version for repository_dispatch events
           if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
             export NUGEX_ReleaseVersion="${{ github.event.client_payload.version }}"
