@@ -1,22 +1,19 @@
 using Nuke.Common;
-using Nuke.Common.Execution;
-using Nuke.Common.IO;
-using Nuke.Common.ProjectModel;
-using Nuke.Common.Tooling;
-using Nuke.Common.Utilities.Collections;
 using Nuke.Common.CI.GitHubActions;
 using Serilog;
-using System;
 
 [GitHubActions(
     "version-monitor",
     GitHubActionsImage.UbuntuLatest,
-    OnPushTags = new[] { "v*.*.*" },
+    OnPushTags = new[] { "*.*.*" },
     ImportSecrets = new[]
     {
         nameof(AzureBlobSasUrl),
         nameof(FeishuWebhookUrl),
-        nameof(GitHubToken)
+        nameof(GitHubToken),
+        nameof(AzureAcrUsername),
+        nameof(AzureAcrPassword),
+        nameof(AzureAcrRegistry)
     },
     EnableGitHubToken = false,
     AutoGenerate = false)]
@@ -27,87 +24,92 @@ partial class Build : Nuke.Common.NukeBuild
     ///   - JetBrains Rider            https://nuke.build/rider
     ///   - Microsoft VisualStudio     https://nuke.build/visualstudio
     ///   - Microsoft VSCode           https://nuke.build/vscode
-
     public static int Main() => Execute<Build>(static x => (Target?)null);
 
     // ==========================================================================
     // Parameters
     // ==========================================================================
-
-    [Parameter("Azure Blob Storage SAS URL for downloading packages")]
-    [Secret]
-    readonly string AzureBlobSasUrl = string.Empty;
-
-    [Parameter("GitHub token for release creation")]
-    [Secret]
-    readonly string GitHubToken = string.Empty;
-
-    [Parameter("GitHub repository (e.g., owner/repo)")]
-    readonly string GitHubRepository = string.Empty;
-
-    [Parameter("Dry run mode (do not trigger actual releases)")]
-    [Secret]
-    readonly string DryRun = string.Empty;
-
-    [Parameter("List only mode (do not trigger releases, just output versions)")]
-    [Secret]
-    readonly string ListOnly = string.Empty;
-
-    /// <summary>
-    /// Gets the effective DryRun value (from parameter or environment variable)
-    /// </summary>
-    bool EffectiveDryRun => !string.IsNullOrEmpty(DryRun)
-        ? (Environment.GetEnvironmentVariable("NUGEX_DryRun")?.ToLower() == "true")
-        : DryRun.ToLower() == "true";
-
-    /// <summary>
-    /// Gets the effective ListOnly value (from parameter or environment variable)
-    /// </summary>
-    bool EffectiveListOnly => !string.IsNullOrEmpty(ListOnly)
-        ? (Environment.GetEnvironmentVariable("NUGEX_ListOnly")?.ToLower() == "true")
-        : ListOnly.ToLower() == "true";
-
-    [Parameter("Feishu webhook URL for notifications")]
-    [Secret]
-    readonly string FeishuWebhookUrl = string.Empty;
-
-    [Parameter("Output directory for downloaded/extracted files")]
-    AbsolutePath OutputDirectory = RootDirectory / "output";
-
-    /// <summary>
-    /// Gets the effective ReleaseVersion value (from parameter or environment variable)
-    /// </summary>
-    string EffectiveReleaseVersion => !string.IsNullOrEmpty(ReleaseVersion)
-        ? Environment.GetEnvironmentVariable("NUGEX_ReleaseVersion") ?? string.Empty
-        : ReleaseVersion;
-
-    // ==========================================================================
-    // Dependencies
+    // All parameter definitions have been moved to Build.Parameters.cs
+    // to improve code organization and maintainability.
     // ==========================================================================
 
-    Target Clean => _ => _
-        .Before(Restore)
+    #region Dependencies
+
+    Target DetermineBuildConfig => _ => _
+        .Description("Determines build version and platform from Git context or environment")
+        .Executes(DetermineBuildConfigExecute);
+
+    #endregion
+
+    /// Push to Aliyun ACR target - builds and pushes Docker images to Aliyun Container Registry only
+
+    Target PushToAliyunAcr => _ => _
+        .Description("Builds and pushes Docker images to Aliyun Container Registry only")
+        .DependsOn(DetermineBuildConfig)
+        .DependsOn(Download)
         .Executes(() =>
         {
-            OutputDirectory.CreateOrCleanDirectory();
+            var version = EffectiveBuildVersion;
+            var dockerImageInfo = new DockerImageInfo(AliyunAcrRegistry, "hagicode", "hagicode");
+            var platforms = new List<string> { "linux/amd64", "linux/arm64" };
+            LoginToAliyunAcr();
+            BuildApplicationImage(dockerImageInfo,
+                version,
+                platforms);
+            RetagImages(dockerImageInfo, version);
+            Log.Information("Starting Aliyun ACR push for version: {Version}", version);
+            Log.Information("Aliyun ACR push completed successfully");
         });
 
-    Target Restore => _ => _
+    /// Push to Azure ACR target - builds and pushes Docker images to Azure Container Registry only
+    Target PushToAzureAcr => _ => _
+        .Description("Builds and pushes Docker images to Azure Container Registry only")
+        .DependsOn(DetermineBuildConfig)
+        .DependsOn(Download)
         .Executes(() =>
         {
-            Log.Information("Restore completed");
+            var version = EffectiveBuildVersion;
+            var dockerImageInfo =
+                new DockerImageInfo(EffectiveAzureAcrRegistry, "", "hagicode");
+
+            var platforms = new List<string> { "linux/amd64", "linux/arm64" };
+            LoginToAzureAcr();
+            BuildApplicationImage(dockerImageInfo,
+                version,
+                platforms,
+                pushToRegistry: true);
+            RetagImages(dockerImageInfo, version);
+            Log.Information("Starting Azure ACR push for version: {Version}", version);
+            Log.Information("Azure ACR push completed successfully");
         });
 
-    // ==========================================================================
-    // Build Targets (declarations only - implementations in partial classes)
-    // ==========================================================================
-    //
-    // Target declarations are split across multiple partial class files:
-    // - Build.Targets.VersionMonitor.cs : Monitors Azure Blob Storage for new versions
-    // - Build.Targets.GitHub.cs       : Creates GitHub releases
-    //
-    // Each partial class file contains both the Target declaration and its
-    // execution logic in separate methods for better organization.
-    //
-    // ==========================================================================
+
+    /// Push to DockerHub target - builds and pushes Docker images to DockerHub only
+
+    Target PushToDockerHub => _ => _
+        .Description("Builds and pushes Docker images to DockerHub only")
+        .DependsOn(DetermineBuildConfig)
+        .DependsOn(Download)
+        .Executes(() =>
+        {
+            var version = EffectiveBuildVersion;
+            var dockerImageInfo = new DockerImageInfo("docker.io", "newbe36524", "hagicode");
+
+            var platforms = new List<string> { "linux/amd64", "linux/arm64" };
+            LoginToDockerHub();
+            BuildApplicationImage(dockerImageInfo,
+                version,
+                platforms,
+                pushToRegistry: false);
+            RetagImages(dockerImageInfo, version);
+            Log.Information("Starting DockerHub push for version: {Version}", version);
+            Log.Information("DockerHub push completed successfully");
+        });
+
+
+    Target PushToAllRegistries => _ => _
+        .Description("Builds and pushes Docker images to all configured registries (Azure ACR, Aliyun ACR, DockerHub)")
+        .DependsOn(PushToAliyunAcr)
+        .DependsOn(PushToAzureAcr)
+        .DependsOn(PushToDockerHub);
 }

@@ -1,10 +1,9 @@
 using Nuke.Common;
 using NukeBuild.Adapters;
 using Serilog;
-using System;
 using System.Diagnostics;
-using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 /// <summary>
 /// Version Monitor target - monitors Azure Blob Storage for new versions and triggers GitHub releases
@@ -14,7 +13,7 @@ using System.Text.Json;
 /// - Confirms that dispatch successfully created a workflow run
 /// - Provides a workflow run URL for tracking release progress
 /// - This catches authentication/permission issues early and provides actionable feedback
-/// </summary>
+
 partial class Build
 {
     Target VersionMonitor => _ => _
@@ -90,6 +89,7 @@ partial class Build
         foreach (var version in newVersions)
         {
             TriggerReleaseForVersion(version);
+            TriggerDockerDispatch(version);
         }
 
         Log.Information("Version Monitor completed successfully");
@@ -152,13 +152,47 @@ partial class Build
         }
     }
 
+    /// <summary>
+    /// Validates version format to ensure it conforms to Docker tag naming conventions.
+    /// Valid versions must start with a digit and contain only alphanumeric characters, dots, hyphens, or underscores.
+    /// This ensures version numbers do not have a "v" prefix which would cause inconsistencies in the build workflow.
+    
+    /// <param name="version">The version string to validate</param>
+    /// <returns>True if the version format is valid, false otherwise</returns>
+    bool IsValidVersionFormat(string version)
+    {
+        // Docker tag specification: only allows letters, numbers, dots, hyphens, underscores
+        // Must start with a digit (to ensure no "v" prefix)
+        if (string.IsNullOrWhiteSpace(version))
+            return false;
+
+        // Trim whitespace
+        var trimmedVersion = version.Trim();
+
+        // Must start with a digit (ensures no "v" prefix)
+        if (!char.IsDigit(trimmedVersion[0]))
+            return false;
+
+        // Allowed characters: numbers, letters, dots, hyphens, underscores
+        var allowedPattern = @"^[0-9A-Za-z._-]+$";
+        return Regex.IsMatch(trimmedVersion, allowedPattern);
+    }
+
     List<string> FindNewVersions(List<string> azureVersions, List<string> githubReleases)
     {
         var newVersions = new List<string>();
 
         foreach (var version in azureVersions)
         {
+            // Validate version format before processing
+            if (!IsValidVersionFormat(version))
+            {
+                Log.Warning("Skipping invalid version format: {Version} (must start with digit and contain only letters, numbers, dots, hyphens, or underscores)", version);
+                continue;
+            }
+
             // Check if this version (with or without 'v' prefix) exists in GitHub releases
+            // This is for backward compatibility with existing releases that may have v-prefixed tags
             var versionWithV = $"v{version}";
             var hasVersion = githubReleases.Contains(version, StringComparer.OrdinalIgnoreCase) ||
                            githubReleases.Contains(versionWithV, StringComparer.OrdinalIgnoreCase);
@@ -256,9 +290,94 @@ partial class Build
     }
 
     /// <summary>
+    /// Triggers Docker build workflow via repository_dispatch event.
+    /// Uses event_type "version-monitor-docker" to distinguish from release workflow.
+    
+    /// <param name="version">The version to build</param>
+    void TriggerDockerDispatch(string version)
+    {
+        var repository = EffectiveGitHubRepository;
+        var dryRun = EffectiveDryRun;
+
+        Log.Information("Triggering Docker dispatch for version: {Version}", version);
+
+        if (dryRun)
+        {
+            Log.Warning("[DRY RUN] Would trigger Docker dispatch for version {Version}", version);
+            return;
+        }
+
+        try
+        {
+            // Build complete request body as JSON
+            // Uses event_type "version-monitor-docker" to trigger docker-build.yml
+            var requestBody = JsonSerializer.Serialize(new
+            {
+                event_type = "version-monitor-docker",
+                client_payload = new
+                {
+                    version = version
+                }
+            });
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "gh",
+                ArgumentList =
+                {
+                    "api",
+                    "--method", "POST",
+                    "-H", "Accept: application/vnd.github.v3+json",
+                    "-H", "Content-Type: application/json",
+                    $"/repos/{repository}/dispatches",
+                    "--input", "-"
+                },
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                Environment =
+                {
+                    ["GH_TOKEN"] = EffectiveGitHubToken
+                }
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process == null)
+            {
+                throw new Exception("Failed to start gh process");
+            }
+
+            // Write JSON body to stdin
+            process.StandardInput.Write(requestBody);
+            process.StandardInput.Close();
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"gh api dispatch failed: {error}");
+            }
+
+            Log.Information("Successfully triggered Docker workflow for version {Version}", version);
+
+            // Verify dispatch created a workflow run
+            VerifyDispatchCreated(version, repository);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger Docker dispatch for version {Version}", version);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Verifies that a repository_dispatch event successfully created a workflow run.
     /// Queries GitHub Actions API to find a matching run within last 60 seconds.
-    /// </summary>
+    
     /// <param name="version">The version that was dispatched</param>
     /// <param name="repository">The GitHub repository (owner/repo)</param>
     void VerifyDispatchCreated(string version, string repository)
@@ -360,7 +479,7 @@ partial class Build
                 }
 
                 // Wait 2 seconds before retrying
-                System.Threading.Thread.Sleep(2000);
+                Thread.Sleep(2000);
             }
             catch (JsonException ex)
             {

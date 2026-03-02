@@ -1,0 +1,149 @@
+# HagiCode Unified Docker Image
+# Multi-stage build combining base tools and application code
+#
+# CLI Tools Versions:
+# - Claude Code CLI: 2.1.34 (@anthropic-ai/claude-code@2.1.34)
+# - OpenSpec CLI: >=1.0.0 <2.0.0 (@fission-ai/openspec@1, 最高支持 1.x)
+# - UIPro CLI: 2.1.3 (uipro-cli@2.1.3)
+#
+# FRAMEWORK-DEPENDENT DEPLOYMENT:
+# This unified Dockerfile provides .NET 10 runtime in the base stage.
+# The application packages do NOT include runtime to reduce size.
+#
+# Template variables: {version}, {build_date}
+
+# ============================================================================
+# Base Stage (internal, not pushed as independent image)
+# ============================================================================
+FROM node:24 AS base
+
+# Metadata labels
+LABEL description="HagiCode Base - Node.js 24, .NET 10 runtime with CLI tools"
+LABEL maintainer="HagiCode Contributors"
+LABEL purpose="Base stage for unified multi-stage build"
+
+# Install additional dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gosu \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install .NET 10 ASP.NET Core Runtime using official Microsoft script
+# This runtime is REQUIRED for framework-dependent deployments
+# The application packages do NOT include runtime to reduce size
+RUN wget -qO- https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
+    --channel 10.0 \
+    --runtime aspnetcore \
+    --install-dir /usr/share/dotnet \
+    --version latest
+
+# Add .NET to PATH
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${DOTNET_ROOT}:${PATH}"
+
+# Create non-root user for running the application
+# Claude Code CLI cannot run as root user
+# Use UID 1000 to match common host user UID
+# -o allows groupadd/useradd to succeed even if GID/UID already exists
+RUN groupadd -o -g 1000 hagicode && \
+    useradd -o -u 1000 -g 1000 -s /bin/bash -m hagicode && \
+    mkdir -p /home/hagicode/.claude && \
+    chown -R hagicode:hagicode /home/hagicode
+
+# Switch to hagicode user for npm installations
+USER hagicode
+WORKDIR /home/hagicode
+
+# Configure npm to install global packages in user's home directory
+RUN mkdir -p /home/hagicode/.npm-global && \
+    npm config set prefix '/home/hagicode/.npm-global' && \
+    echo 'export PATH=/home/hagicode/.npm-global/bin:$PATH' >> /home/hagicode/.bashrc
+
+# Install Claude Code CLI via npm as non-root user
+# This enables AI-assisted development features within container
+RUN npm install -g @anthropic-ai/claude-code@2.1.34 && \
+    /home/hagicode/.npm-global/bin/claude --version || echo "Claude Code CLI installed" && \
+    npm cache clean --force
+
+# Install OpenSpec CLI tool for proposal and change management as non-root user
+# This enables spec-driven development workflows
+RUN npm install -g @fission-ai/openspec@1 && \
+    /home/hagicode/.npm-global/bin/openspec --version || echo "OpenSpec CLI installed" && \
+    npm cache clean --force
+
+# Install UIPro CLI for UI/UX Pro Max skill installation
+# This enables AI assistants to install and use UI/UX design skills
+RUN npm install -g uipro-cli@2.1.3 && \
+    /home/hagicode/.npm-global/bin/uipro --version || echo "UIPro CLI installed" && \
+    npm cache clean --force
+
+# Switch back to root for final setup
+USER root
+WORKDIR /app
+
+# Clean up npm global cache to reduce image size
+RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
+
+# Clean up temporary files to reduce image size
+RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
+
+# Add npm global bin directory to PATH for all users
+# This makes claude and openspec commands available system-wide
+ENV PATH="/home/hagicode/.npm-global/bin:${PATH}"
+
+# ============================================================================
+# Final Stage (pushed as hagicode:{version})
+# ============================================================================
+FROM base AS final
+
+ARG version
+ARG build_date
+ARG TARGETARCH
+
+# Metadata labels
+LABEL version="${version}"
+LABEL build.date="${build_date}"
+LABEL description="HagiCode - AI-assisted development platform (framework-dependent deployment)"
+LABEL deployment.type="framework-dependent"
+
+# Set environment variables for application
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://+:5000
+
+# Copy entrypoint script that configures Claude Code settings
+COPY --chown=hagicode:hagicode docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy application structure from Linux platform package
+# Framework-dependent package structure:
+# - lib/        : Application binaries and dependencies (NO runtime)
+# - *.sh        : Startup scripts
+# - config/     : Configuration files
+#
+# The .NET runtime is provided by the base stage at:
+# - /usr/share/dotnet/dotnet (executable)
+# - Shared libraries in /usr/share/dotnet/shared/
+COPY "lib-${TARGETARCH}/" /app/
+
+# Set ownership for application directory
+RUN chown -R hagicode:hagicode /app
+
+# Create directory for application data
+RUN mkdir -p /app/data && \
+    chown -R hagicode:hagicode /app
+
+# Expose the application port (default 5000)
+EXPOSE 5000
+
+# Add health check
+# The application should respond to HTTP requests on port 5000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 CMD curl -f http://localhost:5000/ || exit 1
+
+# Set working directory to /app where the application resides
+WORKDIR /app
+
+# Run entrypoint script which will configure settings and then start the app
+# The entrypoint will execute: dotnet PCode.Web.dll
+# dotnet is available from PATH (installed in base stage at /usr/share/dotnet)
+ENTRYPOINT ["docker-entrypoint.sh"]

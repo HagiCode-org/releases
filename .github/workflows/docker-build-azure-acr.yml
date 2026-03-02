@@ -1,0 +1,157 @@
+name: Docker Build and Push to Azure ACR
+
+# This workflow builds and pushes Docker images to Azure Container Registry only
+# It can be triggered manually or by version tags
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+      - '*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.2.3)'
+        required: false
+        type: string
+      platform:
+        description: 'Docker platform (all, linux-amd64, linux-arm64)'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - linux-amd64
+          - linux-arm64
+      dry_run:
+        description: 'Dry run mode (do not push to registry)'
+        required: false
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [version-monitor-docker-azure]
+    inputs:
+      version:
+        description: 'Version to build (passed from version monitor)'
+        required: false
+      platform:
+        description: 'Docker platform (all, linux-amd64, linux-arm64)'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - linux-amd64
+          - linux-arm64
+
+permissions:
+  contents: write  # Required for uploading release assets
+
+env:
+  DOTNET_VERSION: '10.0'
+
+jobs:
+  docker-build-azure-acr:
+    name: Build and Push to Azure ACR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build Docker Images (Nuke)
+        env:
+          # Pass workflow inputs to Nuke via environment variables
+          NUGEX_ReleaseVersion: >-
+            ${{ inputs.version }}
+          NUGEX_DockerPlatform: >-
+            ${{ inputs.platform }}
+          NUGEX_DryRun: >-
+            ${{ inputs.dry_run }}
+          # Registry credentials for Azure ACR
+          NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          NUGEX_AzureAcrRegistry: ${{ secrets.AZURE_ACR_REGISTRY }}
+          NUGEX_AzureAcrUsername: ${{ secrets.AZURE_ACR_USERNAME }}
+          NUGEX_AzureAcrPassword: ${{ secrets.AZURE_ACR_PASSWORD }}
+        run: |
+          cd nukeBuild
+
+          # Determine version for repository_dispatch events
+          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
+            export NUGEX_ReleaseVersion="${{ github.event.client_payload.version }}"
+          fi
+
+          # Determine platform for repository_dispatch events
+          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.platform }}" ]; then
+            export NUGEX_DockerPlatform="${{ github.event.client_payload.platform }}"
+          fi
+
+          # Extract version from Git tag for tag push events
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            export NUGEX_ReleaseVersion="${GITHUB_REF#refs/tags/}"
+          fi
+
+          # Run Nuke PushToAzureAcr
+          ./build.sh PushToAzureAcr
+
+      - name: Summary
+        env:
+          NUGEX_ReleaseVersion: ${{ inputs.version }}
+          NUGEX_DockerPlatform: ${{ inputs.platform }}
+        run: |
+          cd nukeBuild
+
+          # Get version info from Nuke
+          VERSION=$(dotnet run -- DetermineBuildConfig 2>&1 | grep -oP 'Effective version: \K[^\s]+')
+
+          # If Nuke returned nothing, use input or Git ref
+          if [ -z "$VERSION" ]; then
+            VERSION="${{ inputs.version }}"
+            if [ -z "$VERSION" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+            fi
+          fi
+
+          PLATFORM="${NUGEX_DockerPlatform:-all}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          REGISTRY="${{ secrets.AZURE_ACR_REGISTRY }}"
+
+          # Parse version for display
+          CLEAN_VERSION="${VERSION#v}"
+          MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
+          MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
+
+          # Check if stable release
+          IS_STABLE=true
+          if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]] || [[ ${CLEAN_VERSION} =~ (rc|beta|alpha|preview|dev)- ]]; then
+            IS_STABLE=false
+          fi
+
+          echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: Azure ACR (${REGISTRY})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform**: ${PLATFORM}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${DRY_RUN}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Is Stable**: ${IS_STABLE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tags" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${CLEAN_VERSION}\` - Version tag" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${MAJOR}.${MINOR}\` - Major.minor tag" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${MAJOR}\` - Major tag" >> $GITHUB_STEP_SUMMARY
+          if [ "$IS_STABLE" = "true" ]; then
+            echo "- \`latest\` - Latest tag (stable release)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- \`latest\` - Skipped (pre-release version)" >> $GITHUB_STEP_SUMMARY
+          fi

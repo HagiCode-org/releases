@@ -1,15 +1,9 @@
 using Azure;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using Nuke.Common.IO;
 using Serilog;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 namespace NukeBuild.Adapters
 {
@@ -20,7 +14,7 @@ namespace NukeBuild.Adapters
         AzureBlobDownloadAllResult DownloadAllPackagesForVersion(AzureBlobDownloadAllOptions options);
         PackageIndex? DownloadIndexJson(string sasUrl);
         string? FindVersion(PackageIndex? index, string version, string platform);
-        List<string> GetAllPackagePaths(PackageIndex? index, string version);
+        List<string> GetAllPackagePaths(PackageIndex? index, string version, List<string>? platforms = null);
         List<string> GetAllVersions(PackageIndex? index);
         string? GetLatestVersionForChannel(PackageIndex? index, string channel);
         Dictionary<string, string> GetAllChannelsWithLatestVersions(PackageIndex? index);
@@ -39,6 +33,7 @@ namespace NukeBuild.Adapters
         public string SasUrl { get; set; } = string.Empty;
         public string Version { get; set; } = string.Empty;
         public AbsolutePath OutputDirectory { get; set; } = null!;
+        public List<string> Platforms { get; set; } = new();
     }
 
     public class AzureBlobDownloadResult
@@ -167,7 +162,7 @@ namespace NukeBuild.Adapters
                 var packageUrl = $"{containerBaseUri.TrimEnd('/')}/{packagePath}{sasQueryParameters}";
 
                 // Extract filename from path
-                var packageFileName = System.IO.Path.GetFileName(packagePath);
+                var packageFileName = Path.GetFileName(packagePath);
                 var localPath = options.OutputDirectory / packageFileName;
 
                 DownloadFileWithRetry(packageUrl, localPath, out var downloadedBytes);
@@ -268,7 +263,7 @@ namespace NukeBuild.Adapters
             return asset.Path;
         }
 
-        public List<string> GetAllPackagePaths(PackageIndex? index, string version)
+        public List<string> GetAllPackagePaths(PackageIndex? index, string version, List<string>? platforms = null)
         {
             var paths = new List<string>();
 
@@ -295,8 +290,18 @@ namespace NukeBuild.Adapters
                 return paths;
             }
 
-            // Return all asset paths for this version
-            foreach (var asset in versionEntry.Assets)
+            // Filter assets by platform if specified
+            var assetsToProcess = versionEntry.Assets;
+            if (platforms != null && platforms.Count > 0)
+            {
+                assetsToProcess = versionEntry.Assets
+                    .Where(a => platforms.Any(p => a.Name.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                Log.Information("Filtered to {Count} packages matching platforms: {Platforms}", assetsToProcess.Count, string.Join(", ", platforms));
+            }
+
+            // Return all asset paths for this version (filtered by platform if applicable)
+            foreach (var asset in assetsToProcess)
             {
                 paths.Add(asset.Path);
                 Log.Debug("Found package: {Name} at {Path}", asset.Name, asset.Path);
@@ -323,7 +328,7 @@ namespace NukeBuild.Adapters
 
                 // Download index.json first
                 var index = DownloadIndexJson(options.SasUrl);
-                var packagePaths = GetAllPackagePaths(index, options.Version);
+                var packagePaths = GetAllPackagePaths(index, options.Version, options.Platforms);
 
                 if (packagePaths.Count == 0)
                 {
@@ -343,7 +348,7 @@ namespace NukeBuild.Adapters
                 {
                     // Build full URL with SAS token
                     var packageUrl = $"{containerBaseUri.TrimEnd('/')}/{packagePath}{sasQueryParameters}";
-                    var packageFileName = System.IO.Path.GetFileName(packagePath);
+                    var packageFileName = Path.GetFileName(packagePath);
                     var localPath = options.OutputDirectory / packageFileName;
 
                     DownloadFileWithRetry(packageUrl, localPath, out var downloadedBytes);
@@ -390,7 +395,7 @@ namespace NukeBuild.Adapters
             downloadedBytes = 0;
 
             // Check if file already exists and skip download
-            if (System.IO.File.Exists(localPath))
+            if (File.Exists(localPath))
             {
                 downloadedBytes = new FileInfo(localPath).Length;
                 Log.Information("File already exists, skipping download: {Path} ({Bytes:N0} bytes)", localPath, downloadedBytes);
@@ -422,7 +427,7 @@ namespace NukeBuild.Adapters
                     Log.Warning("Download attempt {Attempt} failed: {Message}. Retrying in {Delay}ms...",
                         attempt, ex.Message, RetryDelayMilliseconds);
 
-                    Task.Delay(RetryDelayMilliseconds).Wait();
+                    Thread.Sleep(RetryDelayMilliseconds);
                 }
             }
 
@@ -431,7 +436,7 @@ namespace NukeBuild.Adapters
 
         /// <summary>
         /// Gets latest version for a specific channel from package index.
-        /// </summary>
+        
         /// <param name="index">The package index containing all versions.</param>
         /// <param name="channel">The channel to filter by (e.g., "beta", "stable").</param>
         /// <returns>The latest version string for specified channel, or null if not found.</returns>
@@ -470,7 +475,7 @@ namespace NukeBuild.Adapters
 
         /// <summary>
         /// Gets all channels and their latest versions from package index.
-        /// </summary>
+        
         /// <param name="index">The package index containing all versions.</param>
         /// <returns>A dictionary mapping channel names to their latest version strings.</returns>
         public Dictionary<string, string> GetAllChannelsWithLatestVersions(PackageIndex? index)
@@ -523,7 +528,7 @@ namespace NukeBuild.Adapters
 
         /// <summary>
         /// Extracts channel name from a version string (e.g., "beta" from "0.1.0-beta.1")
-        /// </summary>
+        
         private string ExtractChannelFromVersion(string version)
         {
             // Common channel patterns: beta, stable, rc, alpha
@@ -559,7 +564,7 @@ namespace NukeBuild.Adapters
 
         /// <summary>
         /// Formats available versions list into a readable multi-line format.
-        /// </summary>
+        
         private static string FormatAvailableVersionsList(List<string> versions)
         {
             if (versions.Count == 0)
@@ -579,7 +584,7 @@ namespace NukeBuild.Adapters
 
         /// <summary>
         /// Compares semantic version strings for sorting.
-        /// </summary>
+        
         private class SemanticVersionComparer : IComparer<string>
         {
             public int Compare(string? x, string? y)

@@ -24,9 +24,14 @@
     "ExecutableTarget": {
       "type": "string",
       "enum": [
-        "Clean",
+        "ConfigurationValidate",
+        "DetermineBuildConfig",
+        "DockerLogin",
+        "Download",
         "GitHubRelease",
-        "Restore",
+        "PushToAliyunAcr",
+        "PushToAzureAcr",
+        "PushToDockerHub",
         "VersionMonitor"
       ]
     },
@@ -101,19 +106,82 @@
   "allOf": [
     {
       "properties": {
+        "AliyunAcrNamespace": {
+          "type": "string",
+          "description": "Aliyun ACR namespace"
+        },
+        "AliyunAcrPassword": {
+          "type": "string",
+          "description": "Aliyun ACR password"
+        },
+        "AliyunAcrRegistry": {
+          "type": "string",
+          "description": "Aliyun ACR registry endpoint"
+        },
+        "AliyunAcrUsername": {
+          "type": "string",
+          "description": "Aliyun ACR username"
+        },
+        "AzureAcrNamespace": {
+          "type": "string",
+          "description": "Azure ACR namespace"
+        },
+        "AzureAcrPassword": {
+          "type": "string",
+          "description": "Azure ACR password"
+        },
+        "AzureAcrRegistry": {
+          "type": "string",
+          "description": "Azure ACR registry endpoint"
+        },
+        "AzureAcrUsername": {
+          "type": "string",
+          "description": "Azure ACR username"
+        },
         "AzureBlobSasUrl": {
           "type": "string",
-          "description": "Azure Blob Storage SAS URL for downloading packages",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
+          "description": "Azure Blob Storage SAS URL for downloading packages"
+        },
+        "DockerBuildTimeout": {
+          "type": "integer",
+          "description": "Docker build timeout in seconds (default: 3600)",
+          "format": "int32"
+        },
+        "DockerForceRebuild": {
+          "type": "boolean",
+          "description": "Force rebuild of Docker images"
+        },
+        "DockerHubNamespace": {
+          "type": "string",
+          "description": "DockerHub namespace"
+        },
+        "DockerHubToken": {
+          "type": "string",
+          "description": "DockerHub access token"
+        },
+        "DockerHubUsername": {
+          "type": "string",
+          "description": "DockerHub username"
+        },
+        "DockerImageName": {
+          "type": "string",
+          "description": "Docker image name (e.g., hagicode/hagicode)"
+        },
+        "DockerPlatform": {
+          "type": "string",
+          "description": "Docker platform: linux-amd64, linux-arm64, or all (default: all)"
         },
         "DryRun": {
-          "type": "boolean",
+          "type": "string",
           "description": "Dry run mode (do not trigger actual releases)"
+        },
+        "EnableIndependentBuild": {
+          "type": "string",
+          "description": "Enable independent build and push to registries (instead of export/import)"
         },
         "FeishuWebhookUrl": {
           "type": "string",
-          "description": "Feishu webhook URL for notifications",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
+          "description": "Feishu webhook URL for notifications"
         },
         "GitHubRepository": {
           "type": "string",
@@ -121,11 +189,10 @@
         },
         "GitHubToken": {
           "type": "string",
-          "description": "GitHub token for release creation",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
+          "description": "GitHub token for release creation"
         },
         "ListOnly": {
-          "type": "boolean",
+          "type": "string",
           "description": "List only mode (do not trigger releases, just output versions)"
         },
         "OutputDirectory": {

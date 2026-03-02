@@ -1,9 +1,6 @@
-using Nuke.Common;
 using Nuke.Common.CI.GitHubActions;
 using Nuke.Common.IO;
-using Nuke.Common.Tooling;
 using Serilog;
-using System;
 
 /// <summary>
 /// Partial class declarations for Build - shared properties and CI integration
@@ -21,14 +18,25 @@ partial class Build
     // ==========================================================================
 
     /// <summary>
-    /// Stores the detected new versions for release
-    /// </summary>
-    List<string> NewVersions { get; set; } = new();
-
-    /// <summary>
     /// Gets the current build date in ISO format
     /// </summary>
     string BuildDate => DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+    /// <summary>
+    /// Gets the download directory path
+    /// </summary>
+    AbsolutePath DownloadDirectory => OutputDirectory / "download";
+
+    /// <summary>
+    /// Gets the list of downloaded zip files
+    /// </summary>
+    IReadOnlyCollection<AbsolutePath> DownloadedZipFiles =>
+        DownloadDirectory.GlobFiles("*.zip");
+
+    /// <summary>
+    /// Gets the Docker deployment directory path
+    /// </summary>
+    AbsolutePath DockerDeploymentDirectory => RootDirectory / "docker_deployment";
 
     /// <summary>
     /// Gets the GitHub token from CI or parameter
@@ -45,10 +53,10 @@ partial class Build
     /// </summary>
     void SetGitHubOutput(string name, string value)
     {
-        var outputPath = System.Environment.GetEnvironmentVariable("GITHUB_OUTPUT");
+        var outputPath = Environment.GetEnvironmentVariable("GITHUB_OUTPUT");
         if (!string.IsNullOrEmpty(outputPath))
         {
-            System.IO.File.AppendAllText(outputPath, $"{name}={value}\n");
+            File.AppendAllText(outputPath, $"{name}={value}\n");
             Log.Debug("Set GitHub output: {Name}={Value}", name, value);
         }
         else

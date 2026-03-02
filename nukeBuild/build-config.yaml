@@ -1,0 +1,57 @@
+# Nuke Build Configuration
+# This file contains default build parameters that can be overridden by:
+# 1. Environment variables (prefix with NUGEX_)
+# 2. Command line arguments
+
+docker:
+  # Docker image name (e.g., hagicode/hagicode)
+  image_name: "hagicode"
+
+  # Docker platform(s) to build for: linux-amd64, linux-arm64, or all
+  platform: "all"
+
+  # Docker build timeout in seconds
+  build_timeout: 3600
+
+  # Force rebuild of Docker images (skips cache)
+  force_rebuild: false
+
+  # Enable independent build and push to registries using docker buildx
+  # When enabled, uses docker buildx build --push instead of export/import
+  independent_build: false
+
+azure_acr:
+  # Azure Container Registry endpoint (e.g., hagicode.azurecr.io)
+  registry: "hagicode.azurecr.io"
+
+  # Azure Container Registry namespace (optional)
+  namespace: ""
+
+  # Azure Container Registry username
+  username: ""
+
+  # Azure Container Registry password
+  password: ""
+
+aliyun_acr:
+  # Aliyun Container Registry endpoint (e.g., registry.cn-hangzhou.aliyuncs.com)
+  registry: "registry.cn-hangzhou.aliyuncs.com"
+
+  # Aliyun Container Registry namespace
+  namespace: ""
+
+  # Aliyun Container Registry username
+  username: ""
+
+  # Aliyun Container Registry password
+  password: ""
+
+dockerhub:
+  # DockerHub username
+  username: ""
+
+  # DockerHub access token (not password)
+  token: ""
+
+  # DockerHub namespace (optional, defaults to username)
+  namespace: "newbe36524"
