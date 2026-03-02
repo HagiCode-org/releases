@@ -290,30 +290,28 @@ partial class Build
     }
 
     /// <summary>
-    /// Triggers Docker build workflow via repository_dispatch event.
-    /// Uses event_type "version-monitor-docker" to distinguish from release workflow.
-    
+    /// Triggers Aliyun ACR Docker build workflow via repository_dispatch event.
+    /// Uses event_type "version-monitor-docker-aliyun" to trigger Aliyun ACR build.
+    ///
     /// <param name="version">The version to build</param>
-    void TriggerDockerDispatch(string version)
+    void TriggerDockerDispatchAliyun(string version)
     {
         var repository = EffectiveGitHubRepository;
         var dryRun = EffectiveDryRun;
 
-        Log.Information("Triggering Docker dispatch for version: {Version}", version);
+        Log.Information("Triggering Aliyun ACR Docker dispatch for version: {Version}", version);
 
         if (dryRun)
         {
-            Log.Warning("[DRY RUN] Would trigger Docker dispatch for version {Version}", version);
+            Log.Warning("[DRY RUN] Would trigger Aliyun ACR Docker dispatch for version {Version}", version);
             return;
         }
 
         try
         {
-            // Build complete request body as JSON
-            // Uses event_type "version-monitor-docker" to trigger docker-build.yml
             var requestBody = JsonSerializer.Serialize(new
             {
-                event_type = "version-monitor-docker",
+                event_type = "version-monitor-docker-aliyun",
                 client_payload = new
                 {
                     version = version
@@ -349,7 +347,6 @@ partial class Build
                 throw new Exception("Failed to start gh process");
             }
 
-            // Write JSON body to stdin
             process.StandardInput.Write(requestBody);
             process.StandardInput.Close();
 
@@ -362,15 +359,247 @@ partial class Build
                 throw new Exception($"gh api dispatch failed: {error}");
             }
 
-            Log.Information("Successfully triggered Docker workflow for version {Version}", version);
+            Log.Information("Successfully triggered Aliyun ACR Docker workflow for version {Version}", version);
 
-            // Verify dispatch created a workflow run
             VerifyDispatchCreated(version, repository);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to trigger Docker dispatch for version {Version}", version);
+            Log.Error(ex, "Failed to trigger Aliyun ACR Docker dispatch for version {Version}", version);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Triggers Azure ACR Docker build workflow via repository_dispatch event.
+    /// Uses event_type "version-monitor-docker-azure" to trigger Azure ACR build.
+    ///
+    /// <param name="version">The version to build</param>
+    void TriggerDockerDispatchAzure(string version)
+    {
+        var repository = EffectiveGitHubRepository;
+        var dryRun = EffectiveDryRun;
+
+        Log.Information("Triggering Azure ACR Docker dispatch for version: {Version}", version);
+
+        if (dryRun)
+        {
+            Log.Warning("[DRY RUN] Would trigger Azure ACR Docker dispatch for version {Version}", version);
+            return;
+        }
+
+        try
+        {
+            var requestBody = JsonSerializer.Serialize(new
+            {
+                event_type = "version-monitor-docker-azure",
+                client_payload = new
+                {
+                    version = version
+                }
+            });
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "gh",
+                ArgumentList =
+                {
+                    "api",
+                    "--method", "POST",
+                    "-H", "Accept: application/vnd.github.v3+json",
+                    "-H", "Content-Type: application/json",
+                    $"/repos/{repository}/dispatches",
+                    "--input", "-"
+                },
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                Environment =
+                {
+                    ["GH_TOKEN"] = EffectiveGitHubToken
+                }
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process == null)
+            {
+                throw new Exception("Failed to start gh process");
+            }
+
+            process.StandardInput.Write(requestBody);
+            process.StandardInput.Close();
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"gh api dispatch failed: {error}");
+            }
+
+            Log.Information("Successfully triggered Azure ACR Docker workflow for version {Version}", version);
+
+            VerifyDispatchCreated(version, repository);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger Azure ACR Docker dispatch for version {Version}", version);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Triggers DockerHub Docker build workflow via repository_dispatch event.
+    /// Uses event_type "version-monitor-docker-dockerhub" to trigger DockerHub build.
+    ///
+    /// <param name="version">The version to build</param>
+    void TriggerDockerDispatchDockerHub(string version)
+    {
+        var repository = EffectiveGitHubRepository;
+        var dryRun = EffectiveDryRun;
+
+        Log.Information("Triggering DockerHub Docker dispatch for version: {Version}", version);
+
+        if (dryRun)
+        {
+            Log.Warning("[DRY RUN] Would trigger DockerHub Docker dispatch for version {Version}", version);
+            return;
+        }
+
+        try
+        {
+            var requestBody = JsonSerializer.Serialize(new
+            {
+                event_type = "version-monitor-docker-dockerhub",
+                client_payload = new
+                {
+                    version = version
+                }
+            });
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "gh",
+                ArgumentList =
+                {
+                    "api",
+                    "--method", "POST",
+                    "-H", "Accept: application/vnd.github.v3+json",
+                    "-H", "Content-Type: application/json",
+                    $"/repos/{repository}/dispatches",
+                    "--input", "-"
+                },
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                Environment =
+                {
+                    ["GH_TOKEN"] = EffectiveGitHubToken
+                }
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process == null)
+            {
+                throw new Exception("Failed to start gh process");
+            }
+
+            process.StandardInput.Write(requestBody);
+            process.StandardInput.Close();
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"gh api dispatch failed: {error}");
+            }
+
+            Log.Information("Successfully triggered DockerHub Docker workflow for version {Version}", version);
+
+            VerifyDispatchCreated(version, repository);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger DockerHub Docker dispatch for version {Version}", version);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Triggers Docker build workflows via repository_dispatch events.
+    /// Triggers three independent events for all configured registries:
+    /// - version-monitor-docker-aliyun: triggers Aliyun ACR build
+    /// - version-monitor-docker-azure: triggers Azure ACR build
+    /// - version-monitor-docker-dockerhub: triggers DockerHub build
+    ///
+    /// <param name="version">The version to build</param>
+    void TriggerDockerDispatch(string version)
+    {
+        Log.Information("Triggering Docker dispatch for version: {Version}", version);
+
+        // Trigger all three Docker registry dispatches in sequence
+        // Errors are logged but don't block other dispatches
+        var successCount = 0;
+        var failCount = 0;
+
+        // Aliyun ACR dispatch
+        try
+        {
+            TriggerDockerDispatchAliyun(version);
+            successCount++;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger Aliyun ACR Docker dispatch for version {Version}", version);
+            failCount++;
+        }
+
+        // Azure ACR dispatch
+        try
+        {
+            TriggerDockerDispatchAzure(version);
+            successCount++;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger Azure ACR Docker dispatch for version {Version}", version);
+            failCount++;
+        }
+
+        // DockerHub dispatch
+        try
+        {
+            TriggerDockerDispatchDockerHub(version);
+            successCount++;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to trigger DockerHub Docker dispatch for version {Version}", version);
+            failCount++;
+        }
+
+        // If all dispatches failed, throw an exception
+        if (failCount == 3)
+        {
+            Log.Error("All Docker dispatches failed for version {Version} ({FailCount}/3 failed)", version, failCount);
+            throw new Exception($"All Docker dispatches failed for version {version}");
+        }
+
+        if (failCount > 0)
+        {
+            Log.Warning("Docker dispatch partially succeeded for version {Version}: {SuccessCount}/3 succeeded, {FailCount}/3 failed",
+                version, successCount, failCount);
+        }
+        else
+        {
+            Log.Information("All Docker dispatches succeeded for version {Version} (3/3)", version);
         }
     }
 
