@@ -81,8 +81,8 @@ jobs:
             ${{ inputs.dry_run }}
           # Registry credentials for DockerHub
           NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
-          NUGEX_DockerHubUsername: ${{ secrets.DOCKERHUB_USERNAME }}
-          NUGEX_DockerHubToken: ${{ secrets.DOCKERHUB_TOKEN }}
+          NUGEX_DockerHubUsername: ${{ secrets.DOCKER_USERNAME }}
+          NUGEX_DockerHubToken: ${{ secrets.DOCKER_PASSWORD }}
         run: |
           # Determine version for repository_dispatch events
           if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
