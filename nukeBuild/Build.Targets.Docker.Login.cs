@@ -16,12 +16,6 @@ partial class Build
         .Unlisted()
         .Executes(() =>
         {
-            if (string.IsNullOrEmpty(EffectiveAzureAcrRegistry))
-            {
-                Log.Warning("Edge ACR registry not configured, skipping login");
-                return;
-            }
-
             // Login using the adapter pattern
             var adapter = new AzureAcrAdapter(this);
             if (!adapter.IsConfigured)
@@ -41,12 +35,6 @@ partial class Build
     /// This is a specialized login method for Azure ACR
     void LoginToAzureAcr()
     {
-        if (string.IsNullOrEmpty(EffectiveAzureAcrRegistry))
-        {
-            Log.Warning("Azure ACR registry not configured, skipping login");
-            return;
-        }
-
         var adapter = new AzureAcrAdapter(this);
         if (!adapter.IsConfigured)
         {
@@ -63,12 +51,6 @@ partial class Build
     /// This is a specialized login method for Aliyun ACR
     void LoginToAliyunAcr()
     {
-        if (string.IsNullOrEmpty(EffectiveAliyunAcrRegistry))
-        {
-            Log.Warning("Aliyun ACR registry not configured, skipping login");
-            return;
-        }
-
         var adapter = new AliyunAcrAdapter(this);
         if (!adapter.IsConfigured)
         {
@@ -85,12 +67,6 @@ partial class Build
     /// This is a specialized login method for DockerHub
     void LoginToDockerHub()
     {
-        if (string.IsNullOrEmpty(EffectiveDockerHubUsername))
-        {
-            Log.Warning("DockerHub username not configured, skipping login");
-            return;
-        }
-
         var adapter = new DockerHubAdapter(this);
         if (!adapter.IsConfigured)
         {

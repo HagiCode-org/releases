@@ -47,11 +47,6 @@ partial class Build
     /// Gets the effective Edge ACR registry
     /// Priority: Parameter > Environment > Config file > Default
 
-    string EffectiveAzureAcrRegistry => GetEffectiveValue(
-        BuildConfig.AzureAcrRegistry,
-        "NUGEX_AzureAcrRegistry",
-        AzureAcrRegistry);
-
     /// Gets the effective Edge ACR username
     /// Priority: Parameter > Environment > Config file > Default
 
@@ -76,13 +71,6 @@ partial class Build
         "NUGEX_AzureAcrNamespace",
         AzureAcrNamespace ?? "");
 
-    /// Gets the effective Aliyun ACR registry
-    /// Priority: Parameter > Environment > Config file > Default
-
-    string EffectiveAliyunAcrRegistry => GetEffectiveValue(
-        BuildConfig.AliyunAcrRegistry,
-        "NUGEX_AliyunAcrRegistry",
-        AliyunAcrRegistry);
 
     /// Gets the effective Aliyun ACR username
     /// Priority: Parameter > Environment > Config file > Default

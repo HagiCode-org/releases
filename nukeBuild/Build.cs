@@ -50,7 +50,7 @@ partial class Build : Nuke.Common.NukeBuild
         .Executes(() =>
         {
             var version = EffectiveBuildVersion;
-            var dockerImageInfo = new DockerImageInfo(AliyunAcrRegistry, "hagicode", "hagicode");
+            var dockerImageInfo = new DockerImageInfo("registry.cn-hangzhou.aliyuncs.com", "hagicode", "hagicode");
             var platforms = new List<string> { "linux/amd64", "linux/arm64" };
             LoginToAliyunAcr();
             BuildApplicationImage(dockerImageInfo,
@@ -70,7 +70,7 @@ partial class Build : Nuke.Common.NukeBuild
         {
             var version = EffectiveBuildVersion;
             var dockerImageInfo =
-                new DockerImageInfo(EffectiveAzureAcrRegistry, "", "hagicode");
+                new DockerImageInfo("hagicode.azurecr.io", "", "hagicode");
 
             var platforms = new List<string> { "linux/amd64", "linux/arm64" };
             LoginToAzureAcr();
