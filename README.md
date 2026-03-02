@@ -44,10 +44,13 @@ cd hagicode-release
 
 ### Version Format Requirements
 
-**Important**: Version numbers must NOT include a "v" prefix.
+**Important**: Version numbers follow semantic versioning (semver) format.
 
-- **Correct**: `1.2.3`, `1.2.3-beta.1`
-- **Incorrect**: `v1.2.3`, `1.2.3 beta`
+- **Recommended**: `1.2.3`, `1.2.3-beta.1` (without "v" prefix)
+- **Accepted**: `v1.2.3`, `v1.2.3-beta.1` (with "v" prefix, for backward compatibility)
+- **Incorrect**: `1.2`, `1.2.3 beta`, `latest`
+
+**Note**: Version numbers with and without "v" prefix are functionally equivalent (e.g., `1.2.3` = `v1.2.3`). The system treats them as the same version for comparison and download purposes.
 
 Version format is validated automatically in:
 1. Version Monitor (skips invalid versions with warning)
@@ -590,6 +593,7 @@ When contributing to this repository:
 
 ## Documentation
 
+- [MIGRATION.md](MIGRATION.md) - Release process migration guide
 - [AGENTS.md](AGENTS.md) - AI agents and integration
 - [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) - Complete environment variable reference
 

@@ -1,12 +1,18 @@
 using Nuke.Common;
 using NukeBuild.Adapters;
 using Serilog;
+using System.Linq;
 
 /// <summary>
 /// Download target - downloads packages from Azure Blob Storage
 
 partial class Build
 {
+    /// <summary>
+    /// Gets the list of platforms to download. If null or empty, downloads all available platforms.
+    /// </summary>
+    [Parameter("Comma-separated list of platforms to download (e.g., linux-x64,linux-arm64). If not specified, downloads all platforms.")]
+    readonly string DownloadPlatforms = null;
     Target Download => _ => _
         .Executes(DownloadExecute);
 
@@ -33,7 +39,7 @@ partial class Build
             SasUrl = sasUrl,
             Version = version,
             OutputDirectory = DownloadDirectory,
-            Platforms = new List<string> { "linux-x64", "linux-arm64" }
+            Platforms = DownloadPlatforms?.Split(',').Select(p => p.Trim()).ToList() ?? new List<string>()
         };
 
         var result = adapter.DownloadAllPackagesForVersion(downloadOptions);

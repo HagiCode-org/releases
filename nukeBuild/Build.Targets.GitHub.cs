@@ -44,8 +44,8 @@ partial class Build
             throw new Exception("Release version is not specified");
         }
 
-        // Normalize version tag (ensure 'v' prefix)
-        var releaseTag = EffectiveReleaseVersion.StartsWith("v") ? EffectiveReleaseVersion : $"v{EffectiveReleaseVersion}";
+        // Use the version tag as-is (no prefix modification)
+        var releaseTag = EffectiveReleaseVersion;
 
         // Check if release already exists and upload files, or create new release
         if (ReleaseExists(token, repository, releaseTag))
@@ -133,8 +133,8 @@ partial class Build
     
     void CreateGitHubRelease(string token, string repository, string version)
     {
-        // Normalize version tag (ensure 'v' prefix)
-        var releaseTag = version.StartsWith("v") ? version : $"v{version}";
+        // Use the version tag as-is (no prefix modification)
+        var releaseTag = version;
         var releaseTitle = $"Release {version.TrimStart('v')}";
 
         Log.Information("Creating GitHub release {ReleaseTag} for repository {Repository}",
@@ -291,7 +291,7 @@ partial class Build
     
     string BuildReleaseNotes(string version)
     {
-        var releaseTag = version.StartsWith("v") ? version : $"v{version}";
+        var releaseTag = version;
         return $"Release {version.TrimStart('v')}\n\n" +
                $"Automated release from the version monitor workflow.\n\n" +
                $"**Workflow:** github-release-workflow\n" +

@@ -17,7 +17,7 @@ on:
     types: [version-monitor-release]
   push:
     tags:
-      - 'v*.*.*'
+      - '*.*.*'
 
 permissions:
   contents: write  # Required for creating GitHub Releases
