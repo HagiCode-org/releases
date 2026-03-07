@@ -437,6 +437,7 @@ The Docker images include pre-installed AI agents:
 - **Claude Code CLI**: Version 2.1.34
 - **OpenSpec CLI**: Version >=1.0.0 <2.0.0
 - **UIPro CLI**: Version 2.1.3
+- **Codex CLI**: Latest major stream via `@openai/codex`
 
 See [AGENTS.md](AGENTS.md) for detailed documentation.
 
@@ -453,6 +454,29 @@ Alternatively, mount host configuration:
 ```bash
 docker run -v ~/claude-config:/claude-mount hagicode.azurecr.io/hagicode:1.2.3
 ```
+
+### Codex Global Settings Configuration
+
+Codex connectivity is configured through container environment variables.
+This change does not require additional app-side API key or UI configuration.
+
+```bash
+docker run -d \
+  -p 5000:5000 \
+  -e CODEX_BASE_URL="https://api.openai.com/v1" \
+  -e CODEX_API_KEY="sk-..." \
+  hagicode.azurecr.io/hagicode:1.2.3
+```
+
+Compatibility aliases are also supported:
+
+- `OPENAI_BASE_URL` (fallback alias for base URL)
+- `OPENAI_API_KEY` (fallback alias for API key)
+
+Precedence:
+
+- Base URL: `CODEX_BASE_URL` > `OPENAI_BASE_URL`
+- API key: `CODEX_API_KEY` > `OPENAI_API_KEY`
 
 ## Docker Build Infrastructure
 

@@ -1,6 +1,6 @@
 # AGENTS.md - HagiCode Release Repository
 
-This document describes the AI agents (Claude, OpenSpec) that work with this repository.
+This document describes the AI agents (Claude, OpenSpec, Codex) that work with this repository.
 
 ## Overview
 
@@ -53,6 +53,26 @@ openspec --version
 openspec status
 ```
 
+### Codex CLI
+
+**Purpose**: AI coding task execution and automation
+**Version**: Latest major stream via `@openai/codex`
+**Installation**: Included in Docker base images via npm
+
+The Codex CLI is pre-installed in unified release images and provides:
+- AI coding workflow execution
+- Command-driven coding automation
+- Endpoint and key override via container runtime environment variables
+
+**Usage**:
+```bash
+# Check Codex CLI version
+codex --version
+
+# View Codex CLI help
+codex --help
+```
+
 ## Docker Integration
 
 All AI agents are pre-installed in the Docker base images:
@@ -77,6 +97,19 @@ The Docker entrypoint script (`docker-entrypoint.sh`) automatically configures A
 - `CLAUDE_HOST_CONFIG_ENABLED`: Enable/disable host config mount (default: true)
 - `CLAUDE_CONFIG_MOUNT_PATH`: Path for mounted Claude config (default: /claude-mount)
 - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`: Enable Agent Teams feature (default: 1)
+
+#### Codex Global Settings Configuration
+
+- `CODEX_BASE_URL`: Primary Codex endpoint variable
+- `CODEX_API_KEY`: Primary Codex API key variable
+- `OPENAI_BASE_URL`: Base URL compatibility alias
+- `OPENAI_API_KEY`: API key compatibility alias
+
+Precedence:
+- Base URL: `CODEX_BASE_URL` > `OPENAI_BASE_URL`
+- API key: `CODEX_API_KEY` > `OPENAI_API_KEY`
+
+This runtime contract configures Codex global settings directly and does not require additional app-side API/UI configuration.
 
 #### Host Configuration
 
@@ -477,6 +510,15 @@ Example: 1.2.3, 1.2.3-beta.1
 2. Check that the Docker image includes the `@fission-ai/openspec@1` package
 3. Ensure network connectivity for OpenSpec operations
 
+### Codex CLI Not Working
+
+**Symptom**: Codex commands fail or use unexpected endpoint/key
+
+**Solutions**:
+1. Verify the Docker image includes the `@openai/codex` package
+2. Check variable precedence and conflicts: `CODEX_*` overrides `OPENAI_*`
+3. Ensure both endpoint and API key are present when overriding Codex connectivity
+
 ### Docker Build Issues
 
 **Symptom**: Docker build fails with CLI-related errors
@@ -505,12 +547,14 @@ When contributing to this repository:
 | Claude Code CLI | - | 2.1.34 | ✓ |
 | OpenSpec CLI | >=1.0.0 <2.0.0 | 1.x | ✓ |
 | UIPro CLI | - | 2.1.3 | ✓ |
+| Codex CLI | - | latest major stream | ✓ |
 
 ## Additional Resources
 
 ### AI Agents
 - [Claude Code Documentation](https://claude.ai/code)
 - [OpenSpec Documentation](https://openspec.dev)
+- [Codex Documentation](https://developers.openai.com/codex)
 
 ### Build System
 - [Nuke Documentation](https://nuke.build/docs/)

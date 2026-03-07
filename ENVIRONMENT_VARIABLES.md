@@ -120,6 +120,30 @@ These variables are used inside Docker containers to configure AI agents:
 | `CLAUDE_CONFIG_MOUNT_PATH` | Path for mounted Claude config | No | `/claude-mount` |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | Enable Agent Teams feature | No | `1` |
 
+### Codex Global Configuration
+
+These variables configure Codex global runtime settings in container startup.
+No additional app-side API key or UI configuration is required.
+
+#### Precedence Rules
+
+- Base URL: `CODEX_BASE_URL` > `OPENAI_BASE_URL`
+- API key: `CODEX_API_KEY` > `OPENAI_API_KEY`
+
+#### Variables
+
+| Variable | Description | Required | Example |
+|----------|-------------|-----------|----------|
+| `CODEX_BASE_URL` | Primary Codex endpoint variable | No | `https://api.openai.com/v1` |
+| `CODEX_API_KEY` | Primary Codex API key variable | No | `sk-...` |
+| `OPENAI_BASE_URL` | Compatibility alias for base URL | No | `https://api.openai.com/v1` |
+| `OPENAI_API_KEY` | Compatibility alias for API key | No | `sk-...` |
+
+**Behavior notes**:
+- If no Codex variables are set, container startup behavior is unchanged.
+- Startup logs never print raw API key values.
+- Runtime bootstrap exports resolved values for Codex CLI global consumption.
+
 ### User/Permissions
 
 | Variable | Description | Required | Default | Example |
@@ -194,6 +218,8 @@ Pass environment variables when running Docker containers:
 
 ```bash
 docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
+           -e CODEX_BASE_URL="https://api.openai.com/v1" \
+           -e CODEX_API_KEY="sk-..." \
            -e CLAUDE_HOST_CONFIG_ENABLED="true" \
            -v ~/claude-config:/claude-mount \
            hagicode/hagicode:1.2.3
@@ -210,6 +236,8 @@ services:
     image: hagicode.azurecr.io/hagicode:1.2.3
     environment:
       - ANTHROPIC_AUTH_TOKEN=sk-ant-...
+      - CODEX_BASE_URL=https://api.openai.com/v1
+      - CODEX_API_KEY=sk-...
       - CLAUDE_HOST_CONFIG_ENABLED=true
     volumes:
       - ./claude-config:/claude-mount
@@ -242,6 +270,15 @@ services:
 **Error**: Claude Code not configured
 
 **Solution**: Set `ANTHROPIC_AUTH_TOKEN` or mount host config to `/claude-mount`
+
+### Codex Not Using Expected Endpoint/Key
+
+**Error**: Codex calls use unexpected endpoint or authentication
+
+**Solution**:
+1. Check precedence order: `CODEX_*` overrides `OPENAI_*`
+2. Ensure `CODEX_BASE_URL` and `CODEX_API_KEY` are both set when using Codex-specific variables
+3. Verify no conflicting values are injected by compose files or CI environment
 
 ## Additional Resources
 
