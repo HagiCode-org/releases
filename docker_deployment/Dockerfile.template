@@ -5,6 +5,7 @@
 # - Claude Code CLI: 2.1.34 (@anthropic-ai/claude-code@2.1.34)
 # - OpenSpec CLI: >=1.0.0 <2.0.0 (@fission-ai/openspec@1, 最高支持 1.x)
 # - UIPro CLI: 2.1.3 (uipro-cli@2.1.3)
+# - Codex CLI: latest major stream (@openai/codex)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -78,6 +79,12 @@ RUN npm install -g uipro-cli@2.1.3 && \
     /home/hagicode/.npm-global/bin/uipro --version || echo "UIPro CLI installed" && \
     npm cache clean --force
 
+# Install Codex CLI for coding assistance in unified runtime image
+# This ensures codex command is available in container without extra setup
+RUN npm install -g @openai/codex && \
+    /home/hagicode/.npm-global/bin/codex --version && \
+    npm cache clean --force
+
 # Switch back to root for final setup
 USER root
 WORKDIR /app
@@ -89,7 +96,7 @@ RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
 RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
 
 # Add npm global bin directory to PATH for all users
-# This makes claude and openspec commands available system-wide
+# This makes claude/openspec/uipro/codex commands available system-wide
 ENV PATH="/home/hagicode/.npm-global/bin:${PATH}"
 
 # ============================================================================

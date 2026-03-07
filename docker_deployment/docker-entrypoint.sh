@@ -190,6 +190,55 @@ EOF
 fi
 
 # ==================================================
+# Codex Global Settings Bootstrap
+# ==================================================
+# Runtime precedence:
+# - Base URL: CODEX_BASE_URL > OPENAI_BASE_URL
+# - API key:  CODEX_API_KEY > OPENAI_API_KEY
+
+CODEX_RESOLVED_BASE_URL=""
+CODEX_BASE_SOURCE=""
+if [ -n "$CODEX_BASE_URL" ]; then
+    CODEX_RESOLVED_BASE_URL="$CODEX_BASE_URL"
+    CODEX_BASE_SOURCE="CODEX_BASE_URL"
+elif [ -n "$OPENAI_BASE_URL" ]; then
+    CODEX_RESOLVED_BASE_URL="$OPENAI_BASE_URL"
+    CODEX_BASE_SOURCE="OPENAI_BASE_URL"
+fi
+
+CODEX_RESOLVED_API_KEY=""
+CODEX_API_SOURCE=""
+if [ -n "$CODEX_API_KEY" ]; then
+    CODEX_RESOLVED_API_KEY="$CODEX_API_KEY"
+    CODEX_API_SOURCE="CODEX_API_KEY"
+elif [ -n "$OPENAI_API_KEY" ]; then
+    CODEX_RESOLVED_API_KEY="$OPENAI_API_KEY"
+    CODEX_API_SOURCE="OPENAI_API_KEY"
+fi
+
+if [ -n "$CODEX_RESOLVED_BASE_URL" ] || [ -n "$CODEX_RESOLVED_API_KEY" ]; then
+    echo "✓ Configuring Codex global settings from environment variables..."
+
+    if [ -n "$CODEX_RESOLVED_BASE_URL" ]; then
+        export CODEX_BASE_URL="$CODEX_RESOLVED_BASE_URL"
+        export OPENAI_BASE_URL="$CODEX_RESOLVED_BASE_URL"
+        echo "  Base URL source: $CODEX_BASE_SOURCE"
+    fi
+
+    if [ -n "$CODEX_RESOLVED_API_KEY" ]; then
+        export CODEX_API_KEY="$CODEX_RESOLVED_API_KEY"
+        export OPENAI_API_KEY="$CODEX_RESOLVED_API_KEY"
+        echo "  API key source: $CODEX_API_SOURCE (masked)"
+    fi
+
+    if [ -z "$CODEX_RESOLVED_BASE_URL" ] || [ -z "$CODEX_RESOLVED_API_KEY" ]; then
+        echo "  ⚠ Warning: Codex endpoint or API key is missing; CLI connectivity may be limited."
+    fi
+else
+    echo "✓ No Codex global overrides provided; using existing Codex defaults."
+fi
+
+# ==================================================
 # Start Application
 # ==================================================
 
