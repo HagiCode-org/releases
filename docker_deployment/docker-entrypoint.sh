@@ -32,6 +32,114 @@ if [ -n "$PUID" ] && [ -n "$PGID" ]; then
 fi
 
 # ==================================================
+# CLI Version Overrides
+# ==================================================
+# Use pinned versions baked into image by default.
+# Users can override per tool with:
+# - CLAUDE_CODE_CLI_VERSION
+# - OPENSPEC_CLI_VERSION
+# - UIPRO_CLI_VERSION
+# - CODEX_CLI_VERSION
+# - COPILOT_CLI_VERSION
+# - CODEBUDDY_CLI_VERSION
+# - IFLOW_CLI_VERSION
+
+install_cli_override_if_needed() {
+    local display_name="$1"
+    local package_name="$2"
+    local command_name="$3"
+    local pinned_version="$4"
+    local override_version="$5"
+    local override_env_name="$6"
+
+    if [ -z "$override_version" ]; then
+        echo "✓ ${display_name} using pinned version: ${pinned_version}"
+        return 0
+    fi
+
+    if [ "$override_version" = "$pinned_version" ]; then
+        echo "✓ ${display_name} override matches pinned version (${pinned_version}); skipping reinstall."
+        return 0
+    fi
+
+    echo "✓ ${display_name} version override detected: ${override_env_name}=${override_version}"
+    echo "  Installing ${package_name}@${override_version} ..."
+
+    gosu hagicode npm install -g "${package_name}@${override_version}"
+    gosu hagicode "/home/hagicode/.npm-global/bin/${command_name}" --version >/dev/null
+    gosu hagicode npm cache clean --force >/dev/null 2>&1 || true
+
+    echo "  Installed ${display_name} ${override_version}"
+}
+
+PINNED_CLAUDE_CODE_CLI_VERSION="${PINNED_CLAUDE_CODE_CLI_VERSION:-2.1.71}"
+PINNED_OPENSPEC_CLI_VERSION="${PINNED_OPENSPEC_CLI_VERSION:-1.2.0}"
+PINNED_UIPRO_CLI_VERSION="${PINNED_UIPRO_CLI_VERSION:-2.2.3}"
+PINNED_OPENCODE_CLI_VERSION="${PINNED_OPENCODE_CLI_VERSION:-1.2.25}"
+PINNED_CODEX_CLI_VERSION="${PINNED_CODEX_CLI_VERSION:-0.112.0}"
+PINNED_COPILOT_CLI_VERSION="${PINNED_COPILOT_CLI_VERSION:-1.0.2}"
+PINNED_CODEBUDDY_CLI_VERSION="${PINNED_CODEBUDDY_CLI_VERSION:-2.61.2}"
+PINNED_IFLOW_CLI_VERSION="${PINNED_IFLOW_CLI_VERSION:-0.5.17}"
+
+install_cli_override_if_needed \
+    "Claude Code CLI" \
+    "@anthropic-ai/claude-code" \
+    "claude" \
+    "$PINNED_CLAUDE_CODE_CLI_VERSION" \
+    "${CLAUDE_CODE_CLI_VERSION:-}" \
+    "CLAUDE_CODE_CLI_VERSION"
+
+install_cli_override_if_needed \
+    "OpenSpec CLI" \
+    "@fission-ai/openspec" \
+    "openspec" \
+    "$PINNED_OPENSPEC_CLI_VERSION" \
+    "${OPENSPEC_CLI_VERSION:-}" \
+    "OPENSPEC_CLI_VERSION"
+
+install_cli_override_if_needed \
+    "UIPro CLI" \
+    "uipro-cli" \
+    "uipro" \
+    "$PINNED_UIPRO_CLI_VERSION" \
+    "${UIPRO_CLI_VERSION:-}" \
+    "UIPRO_CLI_VERSION"
+
+echo "✓ OpenCode CLI using pinned image version: ${PINNED_OPENCODE_CLI_VERSION} (command: opencode)"
+
+install_cli_override_if_needed \
+    "Codex CLI" \
+    "@openai/codex" \
+    "codex" \
+    "$PINNED_CODEX_CLI_VERSION" \
+    "${CODEX_CLI_VERSION:-}" \
+    "CODEX_CLI_VERSION"
+
+install_cli_override_if_needed \
+    "Copilot CLI" \
+    "@github/copilot" \
+    "copilot" \
+    "$PINNED_COPILOT_CLI_VERSION" \
+    "${COPILOT_CLI_VERSION:-}" \
+    "COPILOT_CLI_VERSION"
+
+install_cli_override_if_needed \
+    "CodeBuddy CLI" \
+    "@tencent-ai/codebuddy-code" \
+    "codebuddy" \
+    "$PINNED_CODEBUDDY_CLI_VERSION" \
+    "${CODEBUDDY_CLI_VERSION:-}" \
+    "CODEBUDDY_CLI_VERSION"
+
+install_cli_override_if_needed \
+    "IFlow CLI" \
+    "@iflow-ai/iflow-cli" \
+    "iflow" \
+    "$PINNED_IFLOW_CLI_VERSION" \
+    "${IFLOW_CLI_VERSION:-}" \
+    "IFLOW_CLI_VERSION"
+
+# ==================================================
 # Claude Code Configuration
 # ==================================================
 # Configuration Priority: ANTHROPIC_AUTH_TOKEN > Host Config > None
@@ -187,6 +295,31 @@ EOF
             echo "  → Set ANTHROPIC_AUTH_TOKEN or mount host config to use Claude Code"
         fi
     fi
+fi
+
+# ==================================================
+# Copilot Global Settings Bootstrap
+# ==================================================
+# Copilot runtime variables are isolated from Codex/OpenAI variables.
+
+if [ -n "$COPILOT_BASE_URL" ] || [ -n "$COPILOT_API_KEY" ]; then
+    echo "✓ Configuring Copilot global settings from environment variables..."
+
+    if [ -n "$COPILOT_BASE_URL" ]; then
+        export COPILOT_BASE_URL="$COPILOT_BASE_URL"
+        echo "  Base URL source: COPILOT_BASE_URL"
+    fi
+
+    if [ -n "$COPILOT_API_KEY" ]; then
+        export COPILOT_API_KEY="$COPILOT_API_KEY"
+        echo "  API key source: COPILOT_API_KEY (masked)"
+    fi
+
+    if [ -z "$COPILOT_BASE_URL" ] || [ -z "$COPILOT_API_KEY" ]; then
+        echo "  ⚠ Warning: Copilot endpoint or API key is missing; CLI connectivity may be limited."
+    fi
+else
+    echo "✓ No Copilot global overrides provided; using existing Copilot defaults."
 fi
 
 # ==================================================
