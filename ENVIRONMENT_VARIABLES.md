@@ -142,7 +142,57 @@ No additional app-side API key or UI configuration is required.
 **Behavior notes**:
 - If no Codex variables are set, container startup behavior is unchanged.
 - Startup logs never print raw API key values.
-- Runtime bootstrap exports resolved values for Codex CLI global consumption.
+- Runtime bootstrap exports resolved values for Codex CLI consumption.
+
+### Copilot Global Configuration
+
+These variables configure Copilot CLI runtime settings in container startup.
+Copilot variables are isolated and do not override Codex/OpenAI variables.
+
+| Variable | Description | Required | Example |
+|----------|-------------|-----------|----------|
+| `COPILOT_BASE_URL` | Copilot endpoint variable | No | `https://api.githubcopilot.com` |
+| `COPILOT_API_KEY` | Copilot API key variable | No | `ghp_...` |
+
+### Shipped CLI Version Overrides
+
+These runtime variables reuse the existing entrypoint reinstall pattern. If a variable is unset, the image keeps using the pinned version baked into the container.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|----------|
+| `CLAUDE_CODE_CLI_VERSION` | Override the baked Claude Code CLI version | No | `2.1.71` |
+| `OPENSPEC_CLI_VERSION` | Override the baked OpenSpec CLI version | No | `1.2.0` |
+| `UIPRO_CLI_VERSION` | Override the baked UIPro CLI version | No | `2.2.3` |
+| `CODEX_CLI_VERSION` | Override the baked Codex CLI version | No | `0.112.0` |
+| `COPILOT_CLI_VERSION` | Override the baked Copilot CLI version | No | `1.0.2` |
+| `CODEBUDDY_CLI_VERSION` | Override the baked CodeBuddy CLI version | No | `2.61.2` |
+| `IFLOW_CLI_VERSION` | Override the baked IFlow CLI version | No | `0.5.17` |
+
+**OpenCode note**:
+- The image ships `opencode` from the pinned `opencode-ai` package baseline.
+- There is intentionally no `OPENCODE_CLI_VERSION` runtime override variable in this contract.
+- Release-side smoke checks should still verify `opencode --version` so OpenCode remains part of the supported container matrix.
+
+### CodeBuddy Runtime Configuration
+
+These variables are passed through to the container runtime for CodeBuddy CLI usage.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|----------|
+| `CODEBUDDY_API_KEY` | API key for CodeBuddy CLI API-key mode | No | `cb-...` |
+| `CODEBUDDY_INTERNET_ENVIRONMENT` | Network environment mode expected by CodeBuddy CLI | No | `ioa` |
+
+**Behavior notes**:
+- HagiCode starts CodeBuddy with `codebuddy --acp`; shipping the binary in the image does not remove runtime auth requirements.
+- Current CodeBuddy documentation uses `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` for newer CLI builds. If you intentionally downgrade with `CODEBUDDY_CLI_VERSION`, re-check the upstream CodeBuddy docs before reusing older values.
+
+### IFlow Runtime Notes
+
+There is no repository-approved private `IFLOW_*` environment-variable contract to document here beyond the CLI version override.
+
+- The image ships the `iflow` command and HagiCode starts it with `iflow --experimental-acp --port {port}`.
+- You must still complete `iflow` login interactively, or mount equivalent runtime state, before expecting the IFlow provider to authenticate successfully inside the container.
+- Release-side smoke checks should verify `iflow --version`; provider validation should separately confirm that login state exists when IFlow is enabled.
 
 ### User/Permissions
 
@@ -218,8 +268,12 @@ Pass environment variables when running Docker containers:
 
 ```bash
 docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
+           -e COPILOT_BASE_URL="https://api.githubcopilot.com" \
+           -e COPILOT_API_KEY="ghp_..." \
            -e CODEX_BASE_URL="https://api.openai.com/v1" \
            -e CODEX_API_KEY="sk-..." \
+           -e CODEBUDDY_API_KEY="cb-..." \
+           -e CODEBUDDY_INTERNET_ENVIRONMENT="ioa" \
            -e CLAUDE_HOST_CONFIG_ENABLED="true" \
            -v ~/claude-config:/claude-mount \
            hagicode/hagicode:1.2.3
@@ -236,6 +290,8 @@ services:
     image: hagicode.azurecr.io/hagicode:1.2.3
     environment:
       - ANTHROPIC_AUTH_TOKEN=sk-ant-...
+      - COPILOT_BASE_URL=https://api.githubcopilot.com
+      - COPILOT_API_KEY=ghp_...
       - CODEX_BASE_URL=https://api.openai.com/v1
       - CODEX_API_KEY=sk-...
       - CLAUDE_HOST_CONFIG_ENABLED=true
@@ -278,6 +334,15 @@ services:
 **Solution**:
 1. Check precedence order: `CODEX_*` overrides `OPENAI_*`
 2. Ensure `CODEX_BASE_URL` and `CODEX_API_KEY` are both set when using Codex-specific variables
+3. Verify no conflicting values are injected by compose files or CI environment
+
+### Copilot Not Using Expected Endpoint/Key
+
+**Error**: Copilot calls use unexpected endpoint or authentication
+
+**Solution**:
+1. Ensure `COPILOT_BASE_URL` and `COPILOT_API_KEY` are set explicitly
+2. Do not rely on `CODEX_*` or `OPENAI_*` as Copilot fallback
 3. Verify no conflicting values are injected by compose files or CI environment
 
 ## Additional Resources

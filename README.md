@@ -110,6 +110,56 @@ hagicode/hagicode:latest          - Application image with latest tag
 
 **Note**: The Docker image uses a unified multi-stage build. Base tools (Node.js, .NET runtime, CLI tools) and application code are combined in a single image. No separate base image is pushed to registries.
 
+### Shipped CLI Support Matrix
+
+The unified image bakes the following CLI tools into `/home/hagicode/.npm-global/bin` so they are available to the `hagicode` user without post-start installation:
+
+| CLI | Image package baseline | Runtime contract | Version override |
+|-----|------------------------|------------------|------------------|
+| Claude Code | `@anthropic-ai/claude-code@2.1.71` | Standard Claude Code CLI workflow | `CLAUDE_CODE_CLI_VERSION` |
+| OpenSpec | `@fission-ai/openspec@1.2.0` | Spec workflow commands inside container | `OPENSPEC_CLI_VERSION` |
+| UIPro | `uipro-cli@2.2.3` | Skill installation / UI workflow support | `UIPRO_CLI_VERSION` |
+| OpenCode | `opencode-ai@1.2.25` | Shipped as the `opencode` command; HagiCode keeps using the managed OpenCode shared HTTP runtime baseline in `AI:OpenCode` | None (pinned image baseline) |
+| Codex | `@openai/codex@0.112.0` | Terminal coding workflow | `CODEX_CLI_VERSION` |
+| Copilot | `@github/copilot@1.0.2` | Terminal Copilot workflow | `COPILOT_CLI_VERSION` |
+| CodeBuddy | `@tencent-ai/codebuddy-code@2.61.2` | HagiCode starts `codebuddy --acp`; runtime may also need `CODEBUDDY_API_KEY` and `CODEBUDDY_INTERNET_ENVIRONMENT` | `CODEBUDDY_CLI_VERSION` |
+| IFlow | `@iflow-ai/iflow-cli@0.5.17` | HagiCode starts `iflow --experimental-acp --port {port}`; CLI login or equivalent mounted runtime state must still exist at runtime | `IFLOW_CLI_VERSION` |
+
+### Container CLI Smoke Checks
+
+Use these release-side checks after building or pulling an image to confirm the expected commands are present:
+
+```bash
+docker run --rm --entrypoint /bin/sh hagicode.azurecr.io/hagicode:1.2.3 -c '
+  set -eu
+  codebuddy --version
+  iflow --version
+  opencode --version
+'
+```
+
+If you want to validate the full shipped CLI set in one pass, expand the same command:
+
+```bash
+docker run --rm --entrypoint /bin/sh hagicode.azurecr.io/hagicode:1.2.3 -c '
+  set -eu
+  claude --version
+  openspec --version
+  uipro --version
+  opencode --version
+  codex --version
+  copilot --version
+  codebuddy --version
+  iflow --version
+'
+```
+
+### Runtime Notes for CodeBuddy, IFlow, and OpenCode
+
+- CodeBuddy is installed in the image, but authentication is still a runtime concern. If you use API key mode, pass `CODEBUDDY_API_KEY` together with `CODEBUDDY_INTERNET_ENVIRONMENT` (the current documented value is usually `ioa`).
+- IFlow is also installed in the image, but first-run login is not baked into the container. Complete `iflow` login interactively or mount pre-existing runtime state before expecting HagiCode to launch the IFlow provider successfully.
+- OpenCode remains part of the supported image baseline. The image ships the `opencode` command for regression coverage, while the application continues to use the managed OpenCode runtime contract instead of a new container-specific bootstrap path.
+
 ### Pulling from Edge ACR
 
 ```bash
@@ -219,6 +269,8 @@ For **pre-release versions** (e.g., `1.2.3-rc.1`):
 - `1.2` - Major.minor
 - `1` - Major
 - (no `latest` tag)
+
+For Copilot-enabled containers, use the same image publishing flow as existing releases.
 
 #### Requirements
 
@@ -434,10 +486,11 @@ Pass parameters directly to Nuke:
 
 The Docker images include pre-installed AI agents:
 
-- **Claude Code CLI**: Version 2.1.34
-- **OpenSpec CLI**: Version >=1.0.0 <2.0.0
-- **UIPro CLI**: Version 2.1.3
-- **Codex CLI**: Latest major stream via `@openai/codex`
+- **Claude Code CLI**: Version 2.1.71
+- **OpenSpec CLI**: Version 1.2.0
+- **UIPro CLI**: Version 2.2.3
+- **Codex CLI**: Version 0.112.0
+- **Copilot CLI**: Version 1.0.2
 
 See [AGENTS.md](AGENTS.md) for detailed documentation.
 
@@ -477,6 +530,47 @@ Precedence:
 
 - Base URL: `CODEX_BASE_URL` > `OPENAI_BASE_URL`
 - API key: `CODEX_API_KEY` > `OPENAI_API_KEY`
+
+### Copilot CLI Docker Runtime Compatibility
+
+Copilot runtime variables are handled independently and are not used to override Codex/OpenAI runtime variables.
+
+```bash
+docker run -d \
+  -p 5000:5000 \
+  -e COPILOT_BASE_URL="https://api.githubcopilot.com" \
+  -e COPILOT_API_KEY="ghp_..." \
+  hagicode.azurecr.io/hagicode:1.2.3-copilot
+```
+
+Copilot runtime variables:
+
+- `COPILOT_BASE_URL`
+- `COPILOT_API_KEY`
+
+These values are isolated from the Codex precedence chain.
+
+### CLI Version Override (Optional)
+
+The image includes pinned default CLI versions. You can override specific CLI versions at container startup through entrypoint-managed environment variables:
+
+- `CLAUDE_CODE_CLI_VERSION`
+- `OPENSPEC_CLI_VERSION`
+- `UIPRO_CLI_VERSION`
+- `CODEX_CLI_VERSION`
+- `COPILOT_CLI_VERSION`
+
+Example (override Codex and Copilot only):
+
+```bash
+docker run -d \
+  -p 5000:5000 \
+  -e CODEX_CLI_VERSION="0.112.0" \
+  -e COPILOT_CLI_VERSION="1.0.2" \
+  hagicode.azurecr.io/hagicode:1.2.3
+```
+
+If no override environment variable is provided, the pinned image versions are used.
 
 ## Docker Build Infrastructure
 

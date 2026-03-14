@@ -1,6 +1,6 @@
 # AGENTS.md - HagiCode Release Repository
 
-This document describes the AI agents (Claude, OpenSpec, Codex) that work with this repository.
+This document describes the AI agents (Claude, OpenSpec, Codex, Copilot) that work with this repository.
 
 ## Overview
 
@@ -73,6 +73,26 @@ codex --version
 codex --help
 ```
 
+### Copilot CLI
+
+**Purpose**: GitHub Copilot coding agent workflow in terminal
+**Version**: Latest major stream via `@github/copilot`
+**Installation**: Included in Docker base images via npm
+
+The Copilot CLI is pre-installed in unified release images and provides:
+- Terminal-native Copilot coding workflow
+- Prompt-driven code assistance in containerized runtime
+- Endpoint and key override via container runtime environment variables
+
+**Usage**:
+```bash
+# Check Copilot CLI version
+copilot --version
+
+# View Copilot CLI help
+copilot --help
+```
+
 ## Docker Integration
 
 All AI agents are pre-installed in the Docker base images:
@@ -102,14 +122,19 @@ The Docker entrypoint script (`docker-entrypoint.sh`) automatically configures A
 
 - `CODEX_BASE_URL`: Primary Codex endpoint variable
 - `CODEX_API_KEY`: Primary Codex API key variable
-- `OPENAI_BASE_URL`: Base URL compatibility alias
-- `OPENAI_API_KEY`: API key compatibility alias
+- `OPENAI_BASE_URL`: Compatibility alias for endpoint
+- `OPENAI_API_KEY`: Compatibility alias for API key
 
 Precedence:
 - Base URL: `CODEX_BASE_URL` > `OPENAI_BASE_URL`
 - API key: `CODEX_API_KEY` > `OPENAI_API_KEY`
 
-This runtime contract configures Codex global settings directly and does not require additional app-side API/UI configuration.
+#### Copilot Global Settings Configuration
+
+- `COPILOT_BASE_URL`: Copilot endpoint variable
+- `COPILOT_API_KEY`: Copilot API key variable
+
+Copilot variables are isolated and do not override Codex/OpenAI variables.
 
 #### Host Configuration
 
@@ -519,6 +544,15 @@ Example: 1.2.3, 1.2.3-beta.1
 2. Check variable precedence and conflicts: `CODEX_*` overrides `OPENAI_*`
 3. Ensure both endpoint and API key are present when overriding Codex connectivity
 
+### Copilot CLI Not Working
+
+**Symptom**: Copilot commands fail or use unexpected endpoint/key
+
+**Solutions**:
+1. Verify the Docker image includes the `@github/copilot` package
+2. Check Copilot variables independently: use `COPILOT_*` only for Copilot connectivity
+3. Ensure both endpoint and API key are present when overriding Copilot connectivity
+
 ### Docker Build Issues
 
 **Symptom**: Docker build fails with CLI-related errors
@@ -548,6 +582,7 @@ When contributing to this repository:
 | OpenSpec CLI | >=1.0.0 <2.0.0 | 1.x | ✓ |
 | UIPro CLI | - | 2.1.3 | ✓ |
 | Codex CLI | - | latest major stream | ✓ |
+| Copilot CLI | - | latest major stream | ✓ |
 
 ## Additional Resources
 
@@ -555,6 +590,7 @@ When contributing to this repository:
 - [Claude Code Documentation](https://claude.ai/code)
 - [OpenSpec Documentation](https://openspec.dev)
 - [Codex Documentation](https://developers.openai.com/codex)
+- [GitHub Copilot CLI](https://github.com/github/copilot-cli)
 
 ### Build System
 - [Nuke Documentation](https://nuke.build/docs/)
