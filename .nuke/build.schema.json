@@ -30,6 +30,7 @@
         "Download",
         "GitHubRelease",
         "PushToAliyunAcr",
+        "PushToAllRegistries",
         "PushToAzureAcr",
         "PushToDockerHub",
         "VersionMonitor"
@@ -108,39 +109,48 @@
       "properties": {
         "AliyunAcrNamespace": {
           "type": "string",
-          "description": "Aliyun ACR namespace"
+          "description": "Aliyun ACR namespace",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AliyunAcrPassword": {
           "type": "string",
-          "description": "Aliyun ACR password"
+          "description": "Aliyun ACR password",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AliyunAcrRegistry": {
           "type": "string",
-          "description": "Aliyun ACR registry endpoint"
+          "description": "Aliyun ACR registry endpoint",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AliyunAcrUsername": {
           "type": "string",
-          "description": "Aliyun ACR username"
+          "description": "Aliyun ACR username",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureAcrNamespace": {
           "type": "string",
-          "description": "Azure ACR namespace"
+          "description": "Azure ACR namespace",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureAcrPassword": {
           "type": "string",
-          "description": "Azure ACR password"
+          "description": "Azure ACR password",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureAcrRegistry": {
           "type": "string",
-          "description": "Azure ACR registry endpoint"
+          "description": "Azure ACR registry endpoint",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureAcrUsername": {
           "type": "string",
-          "description": "Azure ACR username"
+          "description": "Azure ACR username",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureBlobSasUrl": {
           "type": "string",
-          "description": "Azure Blob Storage SAS URL for downloading packages"
+          "description": "Azure Blob Storage SAS URL for downloading packages",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "DockerBuildTimeout": {
           "type": "integer",
@@ -153,15 +163,18 @@
         },
         "DockerHubNamespace": {
           "type": "string",
-          "description": "DockerHub namespace"
+          "description": "DockerHub namespace",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "DockerHubToken": {
           "type": "string",
-          "description": "DockerHub access token"
+          "description": "DockerHub access token",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "DockerHubUsername": {
           "type": "string",
-          "description": "DockerHub username"
+          "description": "DockerHub username",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "DockerImageName": {
           "type": "string",
@@ -171,17 +184,18 @@
           "type": "string",
           "description": "Docker platform: linux-amd64, linux-arm64, or all (default: all)"
         },
+        "DownloadPlatforms": {
+          "type": "string",
+          "description": "Comma-separated list of platforms to download (e.g., linux-x64,linux-arm64). If not specified, downloads all platforms"
+        },
         "DryRun": {
           "type": "string",
           "description": "Dry run mode (do not trigger actual releases)"
         },
-        "EnableIndependentBuild": {
-          "type": "string",
-          "description": "Enable independent build and push to registries (instead of export/import)"
-        },
         "FeishuWebhookUrl": {
           "type": "string",
-          "description": "Feishu webhook URL for notifications"
+          "description": "Feishu webhook URL for notifications",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "GitHubRepository": {
           "type": "string",
@@ -189,7 +203,8 @@
         },
         "GitHubToken": {
           "type": "string",
-          "description": "GitHub token for release creation"
+          "description": "GitHub token for release creation",
+          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "ListOnly": {
           "type": "string",

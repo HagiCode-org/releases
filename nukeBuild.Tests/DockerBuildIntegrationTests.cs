@@ -1,103 +1,101 @@
+using System.IO;
 using Xunit;
 
 namespace NukeBuild.Tests;
 
-/// Integration tests for Docker build target dependencies
+/// <summary>
+/// Integration-oriented coverage for the unified Docker release contract.
+/// These tests assert that the Docker template, entrypoint, and release docs
+/// stay aligned on shipped CLI availability and runtime override behavior.
 /// </summary>
 public class DockerBuildIntegrationTests
 {
-    [Fact]
-    public void DockerBuild_ShouldDependOn_Download()
-    {
-        // Verify that DockerBuild target depends on Download target
-        // This ensures packages are downloaded before building images
+    private static readonly string RepoRoot = ResolveRepoRoot();
 
-        Assert.True(true, "Test verifies DockerBuild depends on Download");
+    private static string ResolveRepoRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "Hagicode.ReleaseTasks.sln")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate repos/hagicode-release root from test output directory.");
+    }
+
+    private static string ReadRepoFile(string relativePath)
+    {
+        var fullPath = Path.Combine(RepoRoot, relativePath);
+        return File.ReadAllText(fullPath);
     }
 
     [Fact]
-    public void DockerRelease_ShouldDependOn_DockerPush()
+    public void Dockerfile_ShouldInstall_SharedAndExtendedCliTools()
     {
-        // Verify that DockerRelease target depends on DockerPush target
-        // This ensures images are pushed before marking release as complete
+        var dockerfile = ReadRepoFile("docker_deployment/Dockerfile.template");
 
-        Assert.True(true, "Test verifies DockerRelease depends on DockerPush");
+        Assert.Contains("PINNED_OPENCODE_CLI_VERSION=1.2.25", dockerfile);
+        Assert.Contains("PINNED_CODEBUDDY_CLI_VERSION=2.61.2", dockerfile);
+        Assert.Contains("PINNED_IFLOW_CLI_VERSION=0.5.17", dockerfile);
+
+        Assert.Contains("npm install -g opencode-ai@1.2.25", dockerfile);
+        Assert.Contains("/home/hagicode/.npm-global/bin/opencode --version", dockerfile);
+
+        Assert.Contains("npm install -g @tencent-ai/codebuddy-code@2.61.2", dockerfile);
+        Assert.Contains("/home/hagicode/.npm-global/bin/codebuddy --version", dockerfile);
+
+        Assert.Contains("npm install -g @iflow-ai/iflow-cli@0.5.17", dockerfile);
+        Assert.Contains("/home/hagicode/.npm-global/bin/iflow --version", dockerfile);
     }
 
     [Fact]
-    public void BuildxBuilder_ShouldDependOn_QemuSetup()
+    public void Entrypoint_ShouldExpose_NewCliOverrides_WithoutInventingOpenCodeOverride()
     {
-        // Verify that BuildxBuilder depends on QemuSetup for multi-arch builds
-        // This ensures QEMU is configured before builder setup
+        var entrypoint = ReadRepoFile("docker_deployment/docker-entrypoint.sh");
 
-        Assert.True(true, "Test verifies BuildxBuilder depends on QemuSetup");
+        Assert.Contains("PINNED_OPENCODE_CLI_VERSION", entrypoint);
+        Assert.Contains("CODEBUDDY_CLI_VERSION", entrypoint);
+        Assert.Contains("IFLOW_CLI_VERSION", entrypoint);
+        Assert.Contains("\"@tencent-ai/codebuddy-code\"", entrypoint);
+        Assert.Contains("\"@iflow-ai/iflow-cli\"", entrypoint);
+        Assert.Contains("OpenCode CLI using pinned image version", entrypoint);
+        Assert.DoesNotContain("${OPENCODE_CLI_VERSION", entrypoint);
     }
 
     [Fact]
-    public void AppImageBuild_ShouldDependOn_Download()
+    public void ReleaseDocs_ShouldDescribe_CodeBuddyIFlowAndOpenCodeContainerContract()
     {
-        // Verify that AppImageBuild depends on Download
-        // This ensures packages are downloaded before building application image
-        // Note: With unified build, app image no longer depends on base image build
+        var readme = ReadRepoFile("README.md");
+        var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
 
-        Assert.True(true, "Test verifies AppImageBuild depends on Download");
-    }
+        Assert.Contains("codebuddy --version", readme);
+        Assert.Contains("iflow --version", readme);
+        Assert.Contains("opencode --version", readme);
+        Assert.Contains("CODEBUDDY_CLI_VERSION", readme);
+        Assert.Contains("IFLOW_CLI_VERSION", readme);
+        Assert.Contains("managed OpenCode runtime contract", readme);
 
-    [Fact]
-    public void DockerPush_ShouldDependOn_AppImageBuild()
-    {
-        // Verify that DockerPush depends on AppImageBuild
-        // This ensures application image is built before pushing
-
-        Assert.True(true, "Test verifies DockerPush depends on AppImageBuild");
-    }
-
-    [Fact]
-    public void UnifiedImageBuild_ShouldNotRequireSeparateBaseImageBuild()
-    {
-        // Verify that unified image build does NOT require separate base image build
-        // The base stage is built as part of the multi-stage build
-
-        // Expected: No dependency on BuildBaseImage() method
-        // Base stage is included in Dockerfile.template
-
-        Assert.True(true, "Test verifies unified build does not depend on separate base image build");
-    }
-
-    [Fact]
-    public void NoBaseImageTagIsPushed()
-    {
-        // Verify that no hagicode-base tag is pushed to registry
-        // With unified build, only the final image tag is pushed
-
-        // Expected: Only hagicode:{version} tag is pushed, no hagicode-base tag
-
-        Assert.True(true, "Test verifies no base image tag is pushed");
-    }
-
-    [Fact]
-    public void FinalImageContainsAllCliTools()
-    {
-        // Verify that final image contains all CLI tools
-        // Claude Code CLI, OpenSpec CLI, UIPro CLI, and Codex CLI should be available
-
-        // Expected:
-        // - claude command is available in PATH
-        // - openspec command is available in PATH
-        // - uipro command is available in PATH
-        // - codex command is available in PATH
-
-        Assert.True(true, "Test verifies all CLI tools are in final image");
+        Assert.Contains("CODEBUDDY_API_KEY", environmentVariables);
+        Assert.Contains("CODEBUDDY_INTERNET_ENVIRONMENT", environmentVariables);
+        Assert.Contains("CODEBUDDY_CLI_VERSION", environmentVariables);
+        Assert.Contains("IFLOW_CLI_VERSION", environmentVariables);
+        Assert.Contains("There is intentionally no `OPENCODE_CLI_VERSION`", environmentVariables);
+        Assert.Contains("complete `iflow` login interactively", environmentVariables);
     }
 
     [Fact]
     public void CodexRuntimeVariables_ShouldUseDeterministicPrecedence()
     {
-        // Verify runtime contract for Codex global settings precedence:
-        // - Base URL: CODEX_BASE_URL > OPENAI_BASE_URL
-        // - API key: CODEX_API_KEY > OPENAI_API_KEY
-        // The entrypoint must not log raw key values.
+        var entrypoint = ReadRepoFile("docker_deployment/docker-entrypoint.sh");
 
-        Assert.True(true, "Test verifies Codex runtime env precedence and secret-safe logging expectations");
+        Assert.Contains("CODEX_BASE_URL > OPENAI_BASE_URL", entrypoint);
+        Assert.Contains("CODEX_API_KEY > OPENAI_API_KEY", entrypoint);
+        Assert.Contains("API key source: $CODEX_API_SOURCE (masked)", entrypoint);
     }
 }
