@@ -1,5 +1,7 @@
 # HagiCode Release Repository
 
+[简体中文](./README_cn.md)
+
 Automated release management for the HagiCode platform. This repository handles version monitoring, GitHub releases, and multi-architecture Docker image publishing to Edge ACR.
 
 ## Overview
