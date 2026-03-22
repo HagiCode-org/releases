@@ -73,30 +73,48 @@ codex --version
 codex --help
 ```
 
-### Copilot CLI
+### UI-managed Provider CLIs
+
+The unified release image no longer pre-installs provider CLIs that HagiCode can provision through the hero/system UI. Those providers now follow the product-managed install flow instead of the baked container baseline.
+
+#### Copilot CLI
 
 **Purpose**: GitHub Copilot coding agent workflow in terminal
-**Version**: Latest major stream via `@github/copilot`
-**Installation**: Included in Docker base images via npm
+**Installation**: Installed through the HagiCode UI when needed
 
-The Copilot CLI is pre-installed in unified release images and provides:
-- Terminal-native Copilot coding workflow
-- Prompt-driven code assistance in containerized runtime
-- Endpoint and key override via container runtime environment variables
+Runtime notes:
+- Copilot is no longer part of the image-native CLI baseline.
+- `COPILOT_BASE_URL` and `COPILOT_API_KEY` still configure runtime connectivity after the UI installs the CLI.
 
-**Usage**:
-```bash
-# Check Copilot CLI version
-copilot --version
+#### CodeBuddy CLI
 
-# View Copilot CLI help
-copilot --help
-```
+**Purpose**: CodeBuddy ACP runtime for provider-driven coding workflows
+**Installation**: Installed through the HagiCode UI when needed
+
+Runtime notes:
+- CodeBuddy is no longer part of the image-native CLI baseline.
+- `CODEBUDDY_API_KEY` and `CODEBUDDY_INTERNET_ENVIRONMENT` still apply after the UI installs the CLI.
+
+#### Qoder CLI
+
+**Purpose**: ACP-compatible Qoder runtime for shared CLI toolchain workflows
+**Installation**: Installed through the HagiCode UI when needed
+
+Runtime notes:
+- `qodercli` now follows the UI-managed install path instead of the baked container baseline.
+- `QODER_PERSONAL_ACCESS_TOKEN` remains available for non-interactive container authentication after the UI installs the CLI.
+- Container guidance still assumes ACP bootstrap via `qodercli --acp` once installed.
 
 ## Docker Integration
 
-All AI agents are pre-installed in the Docker base images:
+The Docker base image pre-installs only the retained container baseline:
 
+- `claude`
+- `openspec`
+- `opencode`
+- `codex`
+
+Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because skill management replaces its previous runtime role.
 - **Base Images**:
   - `hagicode/hagicode:base` - AMD64 base image
   - `hagicode/hagicode:base-arm64` - ARM64 base image
@@ -134,7 +152,16 @@ Precedence:
 - `COPILOT_BASE_URL`: Copilot endpoint variable
 - `COPILOT_API_KEY`: Copilot API key variable
 
-Copilot variables are isolated and do not override Codex/OpenAI variables.
+Copilot variables are isolated and do not override Codex/OpenAI variables. They apply after Copilot has been installed through the product UI.
+
+#### Qoder Runtime Configuration
+
+- `QODER_PERSONAL_ACCESS_TOKEN`: Non-interactive qoder authentication token passed through to container runtime
+
+Runtime notes:
+- `qodercli` now follows the UI-managed install path instead of the baked image baseline.
+- Container guidance assumes ACP bootstrap via `qodercli --acp` after the UI installs the CLI.
+- Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value.
 
 #### Host Configuration
 
@@ -549,9 +576,9 @@ Example: 1.2.3, 1.2.3-beta.1
 **Symptom**: Copilot commands fail or use unexpected endpoint/key
 
 **Solutions**:
-1. Verify the Docker image includes the `@github/copilot` package
+1. Install Copilot through the HagiCode UI first; the release image no longer bakes in `@github/copilot`
 2. Check Copilot variables independently: use `COPILOT_*` only for Copilot connectivity
-3. Ensure both endpoint and API key are present when overriding Copilot connectivity
+3. Ensure both endpoint and API key are present when configuring Copilot connectivity
 
 ### Docker Build Issues
 
@@ -580,9 +607,11 @@ When contributing to this repository:
 | QEMU | Any | Via binfmt image | ✓ |
 | Claude Code CLI | - | 2.1.34 | ✓ |
 | OpenSpec CLI | >=1.0.0 <2.0.0 | 1.x | ✓ |
-| UIPro CLI | - | 2.1.3 | ✓ |
+| OpenCode CLI | - | 1.2.25 | ✓ |
 | Codex CLI | - | latest major stream | ✓ |
-| Copilot CLI | - | latest major stream | ✓ |
+| Copilot CLI | UI-managed install | Not baked | UI-managed |
+| CodeBuddy CLI | UI-managed install | Not baked | UI-managed |
+| Qoder CLI | UI-managed install | Not baked | UI-managed |
 
 ## Additional Resources
 

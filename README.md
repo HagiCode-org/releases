@@ -14,7 +14,7 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 - Publish application packages to GitHub Releases
 - Build and push multi-architecture Docker images
 - Synchronize publish results and release metadata across delivery channels
-- Ship the CLI baseline used inside the unified container runtime
+- Ship the streamlined CLI baseline used inside the unified container runtime
 
 ## Main areas
 
@@ -33,6 +33,17 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 ```
 
 Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release.
+
+## Container CLI contract
+
+The unified runtime image bakes only the core release CLI baseline:
+
+- `claude`
+- `openspec`
+- `opencode`
+- `codex`
+
+Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because skill management replaces its previous shipped-runtime workflow.
 
 ## Ecosystem role
 

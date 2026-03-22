@@ -107,6 +107,10 @@ When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to 
 
 These variables are used inside Docker containers to configure AI agents:
 
+- Baked container baseline: `claude`, `openspec`, `opencode`, and `codex`
+- UI-managed installs: `copilot`, `codebuddy`, and `qodercli`
+- Superseded helper: `uipro` is no longer shipped because skill management replaces its runtime role
+
 ### Claude Code Configuration
 
 | Variable | Description | Required | Example |
@@ -162,16 +166,16 @@ These runtime variables reuse the existing entrypoint reinstall pattern. If a va
 |----------|-------------|----------|----------|
 | `CLAUDE_CODE_CLI_VERSION` | Override the baked Claude Code CLI version | No | `2.1.71` |
 | `OPENSPEC_CLI_VERSION` | Override the baked OpenSpec CLI version | No | `1.2.0` |
-| `UIPRO_CLI_VERSION` | Override the baked UIPro CLI version | No | `2.2.3` |
 | `CODEX_CLI_VERSION` | Override the baked Codex CLI version | No | `0.112.0` |
-| `COPILOT_CLI_VERSION` | Override the baked Copilot CLI version | No | `1.0.2` |
-| `CODEBUDDY_CLI_VERSION` | Override the baked CodeBuddy CLI version | No | `2.61.2` |
-| `IFLOW_CLI_VERSION` | Override the baked IFlow CLI version | No | `0.5.17` |
 
 **OpenCode note**:
 - The image ships `opencode` from the pinned `opencode-ai` package baseline.
 - There is intentionally no `OPENCODE_CLI_VERSION` runtime override variable in this contract.
 - Release-side smoke checks should still verify `opencode --version` so OpenCode remains part of the supported container matrix.
+
+**Provider ownership notes**:
+- `copilot`, `codebuddy`, and `qodercli` no longer use baked-image version overrides because HagiCode now installs them through the product UI when needed.
+- `uipro` no longer ships in the runtime baseline because skill management replaces the previous helper workflow.
 
 ### CodeBuddy Runtime Configuration
 
@@ -183,16 +187,21 @@ These variables are passed through to the container runtime for CodeBuddy CLI us
 | `CODEBUDDY_INTERNET_ENVIRONMENT` | Network environment mode expected by CodeBuddy CLI | No | `ioa` |
 
 **Behavior notes**:
-- HagiCode starts CodeBuddy with `codebuddy --acp`; shipping the binary in the image does not remove runtime auth requirements.
-- Current CodeBuddy documentation uses `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` for newer CLI builds. If you intentionally downgrade with `CODEBUDDY_CLI_VERSION`, re-check the upstream CodeBuddy docs before reusing older values.
+- HagiCode starts CodeBuddy with `codebuddy --acp` after the product UI installs the CLI inside the container runtime.
+- Current CodeBuddy documentation uses `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` for newer CLI builds. Re-check upstream CodeBuddy docs if the UI-managed install path adopts a different release.
 
-### IFlow Runtime Notes
+### Qoder Runtime Configuration
 
-There is no repository-approved private `IFLOW_*` environment-variable contract to document here beyond the CLI version override.
+These variables are passed through to the container runtime for QoderCLI usage.
 
-- The image ships the `iflow` command and HagiCode starts it with `iflow --experimental-acp --port {port}`.
-- You must still complete `iflow` login interactively, or mount equivalent runtime state, before expecting the IFlow provider to authenticate successfully inside the container.
-- Release-side smoke checks should verify `iflow --version`; provider validation should separately confirm that login state exists when IFlow is enabled.
+| Variable | Description | Required | Example |
+|----------|-------------|----------|----------|
+| `QODER_PERSONAL_ACCESS_TOKEN` | Personal access token for non-interactive qodercli auth | No | `qdr_pat_...` |
+
+**Behavior notes**:
+- HagiCode starts Qoder via the `QoderCli` contract after the product UI installs `qodercli`; the documented ACP bootstrap path remains `qodercli --acp`.
+- Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value.
+- If you intentionally avoid token auth, mounted qoder runtime state remains an advanced/manual alternative.
 
 ### User/Permissions
 
@@ -266,6 +275,8 @@ Pass environment variables using Nuke's parameter syntax:
 
 Pass environment variables when running Docker containers:
 
+Use provider-specific runtime variables such as Copilot, CodeBuddy, or Qoder only after the matching CLI has been installed through the HagiCode UI inside the container.
+
 ```bash
 docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
            -e COPILOT_BASE_URL="https://api.githubcopilot.com" \
@@ -274,6 +285,7 @@ docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
            -e CODEX_API_KEY="sk-..." \
            -e CODEBUDDY_API_KEY="cb-..." \
            -e CODEBUDDY_INTERNET_ENVIRONMENT="ioa" \
+           -e QODER_PERSONAL_ACCESS_TOKEN="qdr_pat_..." \
            -e CLAUDE_HOST_CONFIG_ENABLED="true" \
            -v ~/claude-config:/claude-mount \
            hagicode/hagicode:1.2.3
@@ -294,6 +306,7 @@ services:
       - COPILOT_API_KEY=ghp_...
       - CODEX_BASE_URL=https://api.openai.com/v1
       - CODEX_API_KEY=sk-...
+      - QODER_PERSONAL_ACCESS_TOKEN=qdr_pat_...
       - CLAUDE_HOST_CONFIG_ENABLED=true
     volumes:
       - ./claude-config:/claude-mount
