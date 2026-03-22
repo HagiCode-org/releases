@@ -38,11 +38,7 @@ fi
 # Users can override per tool with:
 # - CLAUDE_CODE_CLI_VERSION
 # - OPENSPEC_CLI_VERSION
-# - UIPRO_CLI_VERSION
 # - CODEX_CLI_VERSION
-# - COPILOT_CLI_VERSION
-# - CODEBUDDY_CLI_VERSION
-# - IFLOW_CLI_VERSION
 
 install_cli_override_if_needed() {
     local display_name="$1"
@@ -74,12 +70,8 @@ install_cli_override_if_needed() {
 
 PINNED_CLAUDE_CODE_CLI_VERSION="${PINNED_CLAUDE_CODE_CLI_VERSION:-2.1.71}"
 PINNED_OPENSPEC_CLI_VERSION="${PINNED_OPENSPEC_CLI_VERSION:-1.2.0}"
-PINNED_UIPRO_CLI_VERSION="${PINNED_UIPRO_CLI_VERSION:-2.2.3}"
 PINNED_OPENCODE_CLI_VERSION="${PINNED_OPENCODE_CLI_VERSION:-1.2.25}"
 PINNED_CODEX_CLI_VERSION="${PINNED_CODEX_CLI_VERSION:-0.112.0}"
-PINNED_COPILOT_CLI_VERSION="${PINNED_COPILOT_CLI_VERSION:-1.0.2}"
-PINNED_CODEBUDDY_CLI_VERSION="${PINNED_CODEBUDDY_CLI_VERSION:-2.61.2}"
-PINNED_IFLOW_CLI_VERSION="${PINNED_IFLOW_CLI_VERSION:-0.5.17}"
 
 install_cli_override_if_needed \
     "Claude Code CLI" \
@@ -97,14 +89,6 @@ install_cli_override_if_needed \
     "${OPENSPEC_CLI_VERSION:-}" \
     "OPENSPEC_CLI_VERSION"
 
-install_cli_override_if_needed \
-    "UIPro CLI" \
-    "uipro-cli" \
-    "uipro" \
-    "$PINNED_UIPRO_CLI_VERSION" \
-    "${UIPRO_CLI_VERSION:-}" \
-    "UIPRO_CLI_VERSION"
-
 echo "✓ OpenCode CLI using pinned image version: ${PINNED_OPENCODE_CLI_VERSION} (command: opencode)"
 
 install_cli_override_if_needed \
@@ -115,29 +99,12 @@ install_cli_override_if_needed \
     "${CODEX_CLI_VERSION:-}" \
     "CODEX_CLI_VERSION"
 
-install_cli_override_if_needed \
-    "Copilot CLI" \
-    "@github/copilot" \
-    "copilot" \
-    "$PINNED_COPILOT_CLI_VERSION" \
-    "${COPILOT_CLI_VERSION:-}" \
-    "COPILOT_CLI_VERSION"
-
-install_cli_override_if_needed \
-    "CodeBuddy CLI" \
-    "@tencent-ai/codebuddy-code" \
-    "codebuddy" \
-    "$PINNED_CODEBUDDY_CLI_VERSION" \
-    "${CODEBUDDY_CLI_VERSION:-}" \
-    "CODEBUDDY_CLI_VERSION"
-
-install_cli_override_if_needed \
-    "IFlow CLI" \
-    "@iflow-ai/iflow-cli" \
-    "iflow" \
-    "$PINNED_IFLOW_CLI_VERSION" \
-    "${IFLOW_CLI_VERSION:-}" \
-    "IFLOW_CLI_VERSION"
+if [ -n "$QODER_PERSONAL_ACCESS_TOKEN" ]; then
+    export QODER_PERSONAL_ACCESS_TOKEN="$QODER_PERSONAL_ACCESS_TOKEN"
+    echo "✓ Qoder runtime token detected: QODER_PERSONAL_ACCESS_TOKEN (masked)"
+else
+    echo "✓ No Qoder runtime token provided; UI-managed qodercli installs may rely on mounted runtime state."
+fi
 
 # ==================================================
 # Claude Code Configuration

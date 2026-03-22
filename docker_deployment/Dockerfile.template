@@ -4,12 +4,8 @@
 # CLI Tools Versions:
 # - Claude Code CLI: 2.1.71 (@anthropic-ai/claude-code@2.1.71)
 # - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
-# - UIPro CLI: 2.2.3 (uipro-cli@2.2.3)
 # - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
 # - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
-# - Copilot CLI: 1.0.2 (@github/copilot@1.0.2)
-# - CodeBuddy CLI: 2.61.2 (@tencent-ai/codebuddy-code@2.61.2)
-# - IFlow CLI: 0.5.17 (@iflow-ai/iflow-cli@0.5.17)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -48,12 +44,8 @@ ENV DOTNET_ROOT=/usr/share/dotnet
 ENV PATH="${DOTNET_ROOT}:${PATH}"
 ENV PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
     PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
-    PINNED_UIPRO_CLI_VERSION=2.2.3 \
     PINNED_OPENCODE_CLI_VERSION=1.2.25 \
-    PINNED_CODEX_CLI_VERSION=0.112.0 \
-    PINNED_COPILOT_CLI_VERSION=1.0.2 \
-    PINNED_CODEBUDDY_CLI_VERSION=2.61.2 \
-    PINNED_IFLOW_CLI_VERSION=0.5.17
+    PINNED_CODEX_CLI_VERSION=0.112.0
 
 # Create non-root user for running the application
 # Claude Code CLI cannot run as root user
@@ -85,12 +77,6 @@ RUN npm install -g @fission-ai/openspec@1.2.0 && \
     /home/hagicode/.npm-global/bin/openspec --version || echo "OpenSpec CLI installed" && \
     npm cache clean --force
 
-# Install UIPro CLI for UI/UX Pro Max skill installation
-# This enables AI assistants to install and use UI/UX design skills
-RUN npm install -g uipro-cli@2.2.3 && \
-    /home/hagicode/.npm-global/bin/uipro --version || echo "UIPro CLI installed" && \
-    npm cache clean --force
-
 # Install OpenCode CLI for the shared HTTP runtime baseline
 # The npm package is opencode-ai while the shipped command remains opencode
 RUN npm install -g opencode-ai@1.2.25 && \
@@ -101,24 +87,6 @@ RUN npm install -g opencode-ai@1.2.25 && \
 # This ensures codex command is available in container without extra setup
 RUN npm install -g @openai/codex@0.112.0 && \
     /home/hagicode/.npm-global/bin/codex --version && \
-    npm cache clean --force
-
-# Install GitHub Copilot CLI for terminal coding workflows
-# This ensures copilot command is available in container without extra setup
-RUN npm install -g @github/copilot@1.0.2 && \
-    /home/hagicode/.npm-global/bin/copilot --version && \
-    npm cache clean --force
-
-# Install CodeBuddy CLI for ACP stdio runtime support
-# This keeps the image-native CodeBuddy command aligned with HagiCode provider defaults
-RUN npm install -g @tencent-ai/codebuddy-code@2.61.2 && \
-    /home/hagicode/.npm-global/bin/codebuddy --version && \
-    npm cache clean --force
-
-# Install IFlow CLI for ACP WebSocket runtime support
-# This keeps the image-native iflow command aligned with HagiCode provider defaults
-RUN npm install -g @iflow-ai/iflow-cli@0.5.17 && \
-    /home/hagicode/.npm-global/bin/iflow --version && \
     npm cache clean --force
 
 # Switch back to root for final setup
@@ -132,7 +100,7 @@ RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
 RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
 
 # Add npm global bin directory to PATH for all users
-# This makes claude/openspec/uipro/opencode/codex/copilot/codebuddy/iflow commands available system-wide
+# This makes claude/openspec/opencode/codex commands available system-wide
 ENV PATH="/home/hagicode/.npm-global/bin:${PATH}"
 
 # ============================================================================
