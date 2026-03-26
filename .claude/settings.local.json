@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__web-reader__webReader",
+      "WebFetch(domain:nuke.build)",
+      "mcp__web-search-prime__webSearchPrime",
+      "Bash(./build DockerRelease)",
+      "Bash(./build.sh DockerRelease 2>&1 | tail -100)",
+      "Bash(./build.sh DockerRelease 2>&1 | tail -80)"
+    ]
+  }
+}
