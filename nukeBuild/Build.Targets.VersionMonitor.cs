@@ -3,7 +3,6 @@ using NukeBuild.Adapters;
 using Serilog;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 /// <summary>
 /// Version Monitor target - monitors Azure Blob Storage for new versions and triggers GitHub releases
@@ -28,6 +27,8 @@ partial class Build
         AzureBlobAdapter adapter;
         PackageIndex? index;
         List<string> azureVersions;
+        ReleaseVersionMonitorPlan releasePlan;
+        List<string> sortedAzureVersions;
         List<string> githubReleases;
         List<string> newVersions;
 
@@ -55,12 +56,21 @@ partial class Build
                 githubReleases.Count,
                 string.Join(", ", githubReleases));
 
-        // Find new versions
-        newVersions = FindNewVersions(azureVersions, githubReleases);
+        releasePlan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
+        sortedAzureVersions = releasePlan.SortedAzureVersions.ToList();
+        newVersions = releasePlan.NewVersions.ToList();
+
+        foreach (var ignoredVersion in releasePlan.IgnoredVersions)
+        {
+            Log.Warning("Skipping invalid version format: {Version} (must start with digit and contain only letters, numbers, dots, hyphens, or underscores)", ignoredVersion);
+        }
+
+        Log.Information("Sorted Azure versions: {Versions}",
+            sortedAzureVersions.Count == 0 ? "(none)" : string.Join(", ", sortedAzureVersions));
 
         // Output latest version and has_new_versions
-        var hasNewVersions = newVersions.Count > 0;
-        var latestVersion = hasNewVersions ? newVersions.First() : (azureVersions.Count > 0 ? azureVersions.First() : string.Empty);
+        var hasNewVersions = releasePlan.HasNewVersions;
+        var latestVersion = releasePlan.LatestVersion;
 
         SetGitHubOutput("has_new_versions", hasNewVersions ? "true" : "false");
         SetGitHubOutput("new_versions", string.Join(", ", newVersions));
@@ -150,64 +160,6 @@ partial class Build
             Log.Error(ex, "Failed to get GitHub releases");
             throw;
         }
-    }
-
-    /// <summary>
-    /// Validates version format to ensure it conforms to Docker tag naming conventions.
-    /// Valid versions must start with a digit and contain only alphanumeric characters, dots, hyphens, or underscores.
-    /// This ensures version numbers do not have a "v" prefix which would cause inconsistencies in the build workflow.
-    
-    /// <param name="version">The version string to validate</param>
-    /// <returns>True if the version format is valid, false otherwise</returns>
-    bool IsValidVersionFormat(string version)
-    {
-        // Docker tag specification: only allows letters, numbers, dots, hyphens, underscores
-        // Must start with a digit (to ensure no "v" prefix)
-        if (string.IsNullOrWhiteSpace(version))
-            return false;
-
-        // Trim whitespace
-        var trimmedVersion = version.Trim();
-
-        // Must start with a digit (ensures no "v" prefix)
-        if (!char.IsDigit(trimmedVersion[0]))
-            return false;
-
-        // Allowed characters: numbers, letters, dots, hyphens, underscores
-        var allowedPattern = @"^[0-9A-Za-z._-]+$";
-        return Regex.IsMatch(trimmedVersion, allowedPattern);
-    }
-
-    List<string> FindNewVersions(List<string> azureVersions, List<string> githubReleases)
-    {
-        var newVersions = new List<string>();
-
-        foreach (var version in azureVersions)
-        {
-            // Validate version format before processing
-            if (!IsValidVersionFormat(version))
-            {
-                Log.Warning("Skipping invalid version format: {Version} (must start with digit and contain only letters, numbers, dots, hyphens, or underscores)", version);
-                continue;
-            }
-
-            // Check if this version (with or without 'v' prefix) exists in GitHub releases
-            // This is for backward compatibility with existing releases that may have v-prefixed tags
-            var versionWithV = $"v{version}";
-            var hasVersion = githubReleases.Contains(version, StringComparer.OrdinalIgnoreCase) ||
-                           githubReleases.Contains(versionWithV, StringComparer.OrdinalIgnoreCase);
-            if (!hasVersion)
-            {
-                newVersions.Add(version);
-                Log.Debug("Version {Version} is new (not found in GitHub releases)", version);
-            }
-            else
-            {
-                Log.Debug("Version {Version} already exists in GitHub releases", version);
-            }
-        }
-
-        return newVersions;
     }
 
     void TriggerReleaseForVersion(string version)
