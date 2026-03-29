@@ -459,15 +459,14 @@ namespace NukeBuild.Adapters
                 return null;
             }
 
-            // Sort by semantic version to get the latest
-            var latestVersion = channelVersions
-                .OrderByDescending(v => v.Version, new SemanticVersionComparer())
+            var latestVersion = SemanticVersionOrdering
+                .SortDescending(channelVersions.Select(v => v.Version))
                 .FirstOrDefault();
 
-            if (latestVersion != null)
+            if (!string.IsNullOrEmpty(latestVersion))
             {
-                Log.Information("Latest version for channel {Channel} is {Version}", channel, latestVersion.Version);
-                return latestVersion.Version;
+                Log.Information("Latest version for channel {Channel} is {Version}", channel, latestVersion);
+                return latestVersion;
             }
 
             return null;
@@ -582,49 +581,5 @@ namespace NukeBuild.Adapters
             return string.Join(",\n", lines);
         }
 
-        /// <summary>
-        /// Compares semantic version strings for sorting.
-        
-        private class SemanticVersionComparer : IComparer<string>
-        {
-            public int Compare(string? x, string? y)
-            {
-                if (string.IsNullOrEmpty(x)) return -1;
-                if (string.IsNullOrEmpty(y)) return 1;
-
-                // Normalize versions
-                var xVersion = x.TrimStart('v').ToLowerInvariant();
-                var yVersion = y.TrimStart('v').ToLowerInvariant();
-
-                // Split version parts
-                var xParts = xVersion.Split(['-', '.']);
-                var yParts = yVersion.Split(['-', '.']);
-
-                // Compare each part
-                for (int i = 0; i < Math.Max(xParts.Length, yParts.Length); i++)
-                {
-                    if (i >= xParts.Length) return -1;
-                    if (i >= yParts.Length) return 1;
-
-                    var xPart = xParts[i];
-                    var yPart = yParts[i];
-
-                    // Try numeric comparison
-                    if (int.TryParse(xPart, out var xNum) && int.TryParse(yPart, out var yNum))
-                    {
-                        var numCompare = xNum.CompareTo(yNum);
-                        if (numCompare != 0) return numCompare;
-                    }
-                    else
-                    {
-                        // String comparison for pre-release tags (beta, rc, etc.)
-                        var stringCompare = string.CompareOrdinal(xPart, yPart);
-                        if (stringCompare != 0) return stringCompare;
-                    }
-                }
-
-                return 0;
-            }
-        }
     }
 }
