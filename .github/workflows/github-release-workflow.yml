@@ -2,12 +2,8 @@
 # GitHub Release Workflow
 #
 # This workflow creates GitHub Releases independently of Docker builds.
-# It is triggered by version-monitor.yml discovering new versions.
-#
-# IMPORTANT: This workflow is completely decoupled from Docker build workflows.
-# - It can run independently without any Docker builds
-# - Docker builds do not depend on this workflow
-# - Failed Release creation does not affect Docker builds
+# It is triggered automatically by version-monitor dispatches or manually by
+# maintainers who provide an explicit version.
 # ------------------------------------------------------------------------------
 
 name: GitHub Release Workflow
@@ -15,9 +11,12 @@ name: GitHub Release Workflow
 on:
   repository_dispatch:
     types: [version-monitor-release]
-  push:
-    tags:
-      - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write  # Required for creating GitHub Releases
@@ -27,41 +26,63 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.extract-version.outputs.version }}
+      version: ${{ steps.resolve-version.outputs.version }}
+      trigger_source: ${{ steps.resolve-version.outputs.source }}
       release_url: ${{ steps.release.outputs.release_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Extract version from event payload or tag
-        id: extract-version
+      - name: Resolve release version
+        id: resolve-version
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
-            VERSION="${{ github.event.client_payload.version }}"
-            echo "Extracted version from repository_dispatch: $VERSION"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              VERSION=${GITHUB_REF#refs/tags/}
-              echo "Extracted version from tag: $VERSION"
-            else
-              echo "Error: Not a tag push event"
+          EVENT_NAME="${{ github.event_name }}"
+          VERSION=""
+          SOURCE=""
+
+          case "$EVENT_NAME" in
+            repository_dispatch)
+              VERSION="${{ github.event.client_payload.version }}"
+              SOURCE="repository_dispatch"
+              ;;
+            workflow_dispatch)
+              VERSION="${{ inputs.version }}"
+              SOURCE="workflow_dispatch"
+              ;;
+            *)
+              echo "Error: Unsupported event '$EVENT_NAME'"
               exit 1
-            fi
-          else
-            echo "Error: No version available"
+              ;;
+          esac
+
+          if [ -z "$VERSION" ]; then
+            echo "Error: version is required when triggered by $SOURCE"
             exit 1
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          echo "Resolved version from $SOURCE: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
       - name: Run GitHub Release
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          NUGEX_ReleaseVersion: ${{ steps.extract-version.outputs.version }}
+          NUGEX_ReleaseVersion: ${{ steps.resolve-version.outputs.version }}
           NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
         run: |
           ./build.sh GitHubRelease
+
+      - name: Release summary
+        shell: bash
+        run: |
+          echo "## GitHub Release Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version**: ${{ steps.resolve-version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trigger Source**: ${{ steps.resolve-version.outputs.source }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Feishu Notification
         id: feishu-notify
@@ -71,7 +92,8 @@ jobs:
           msg_type: 'interactive'
           title: 'GitHub Release 创建完成'
           message: |
-            **版本**: ${{ steps.extract-version.outputs.version }}
+            **版本**: ${{ steps.resolve-version.outputs.version }}
+            **触发来源**: ${{ steps.resolve-version.outputs.source }}
             **状态**: Release 创建完成
             **触发者**: ${{ github.actor }}
             **时间**: ${{ github.event.repository.updated_at }}

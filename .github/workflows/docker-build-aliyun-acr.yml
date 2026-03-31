@@ -1,18 +1,15 @@
 name: Docker Build and Push to Aliyun ACR
 
-# This workflow builds and pushes Docker images to Aliyun Container Registry only
-# It can be triggered manually or by version tags
+# This workflow builds and pushes Docker images to Aliyun Container Registry only.
+# It is triggered automatically by version-monitor dispatches or manually with an
+# explicit version.
 
 on:
-  push:
-    tags:
-      - '*.*.*'
-      - '*'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build (e.g., 1.2.3)'
-        required: false
+        required: true
         type: string
       platform:
         description: 'Docker platform (all, linux-amd64, linux-arm64)'
@@ -30,19 +27,6 @@ on:
         default: false
   repository_dispatch:
     types: [version-monitor-docker-aliyun]
-    inputs:
-      version:
-        description: 'Version to build (passed from version monitor)'
-        required: false
-      platform:
-        description: 'Docker platform (all, linux-amd64, linux-arm64)'
-        required: false
-        type: choice
-        default: all
-        options:
-          - all
-          - linux-amd64
-          - linux-arm64
 
 permissions:
   contents: write  # Required for uploading release assets
@@ -70,67 +54,80 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Resolve workflow inputs
+        id: resolve-inputs
+        shell: bash
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          VERSION=""
+          PLATFORM=""
+          DRY_RUN="false"
+          SOURCE=""
+
+          case "$EVENT_NAME" in
+            repository_dispatch)
+              VERSION="${{ github.event.client_payload.version }}"
+              PLATFORM="${{ github.event.client_payload.platform }}"
+              DRY_RUN="${{ github.event.client_payload.dry_run }}"
+              SOURCE="repository_dispatch"
+              ;;
+            workflow_dispatch)
+              VERSION="${{ inputs.version }}"
+              PLATFORM="${{ inputs.platform }}"
+              DRY_RUN="${{ inputs.dry_run }}"
+              SOURCE="workflow_dispatch"
+              ;;
+            *)
+              echo "Error: Unsupported event '$EVENT_NAME'"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$VERSION" ]; then
+            echo "Error: version is required when triggered by $SOURCE"
+            exit 1
+          fi
+
+          PLATFORM="${PLATFORM:-all}"
+          DRY_RUN="${DRY_RUN:-false}"
+
+          echo "Resolved version from $SOURCE: $VERSION"
+          echo "Resolved platform from $SOURCE: $PLATFORM"
+          echo "Resolved dry-run from $SOURCE: $DRY_RUN"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "platform=$PLATFORM" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker Images (Nuke)
         env:
-          # Pass workflow inputs to Nuke via environment variables
-          NUGEX_ReleaseVersion: >-
-            ${{ inputs.version }}
-          NUGEX_DockerPlatform: >-
-            ${{ inputs.platform }}
-          NUGEX_DryRun: >-
-            ${{ inputs.dry_run }}
-          # Registry credentials for Aliyun ACR
+          NUGEX_ReleaseVersion: ${{ steps.resolve-inputs.outputs.version }}
+          NUGEX_DockerPlatform: ${{ steps.resolve-inputs.outputs.platform }}
+          NUGEX_DryRun: ${{ steps.resolve-inputs.outputs.dry_run }}
           NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
           NUGEX_AliyunAcrRegistry: ${{ secrets.ALIYUN_ACR_REGISTRY }}
           NUGEX_AliyunAcrUsername: ${{ secrets.ALIYUN_ACR_USERNAME }}
           NUGEX_AliyunAcrPassword: ${{ secrets.ALIYUN_ACR_PASSWORD }}
         run: |
-          # Determine version for repository_dispatch events
-          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.version }}" ]; then
-            export NUGEX_ReleaseVersion="${{ github.event.client_payload.version }}"
-          fi
-
-          # Determine platform for repository_dispatch events
-          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.platform }}" ]; then
-            export NUGEX_DockerPlatform="${{ github.event.client_payload.platform }}"
-          fi
-
-          # Extract version from Git tag for tag push events
-          if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            export NUGEX_ReleaseVersion="${GITHUB_REF#refs/tags/}"
-          fi
-
-          # Run Nuke PushToAliyunAcr
           ./build.sh PushToAliyunAcr
 
       - name: Summary
         env:
-          NUGEX_ReleaseVersion: ${{ inputs.version }}
-          NUGEX_DockerPlatform: ${{ inputs.platform }}
+          NUGEX_ReleaseVersion: ${{ steps.resolve-inputs.outputs.version }}
+          NUGEX_DockerPlatform: ${{ steps.resolve-inputs.outputs.platform }}
         run: |
           cd nukeBuild
 
-          # Get version info from Nuke
-          VERSION=$(dotnet run -- DetermineBuildConfig 2>&1 | grep -oP 'Effective version: \K[^\s]+')
-
-          # If Nuke returned nothing, use input or Git ref
-          if [ -z "$VERSION" ]; then
-            VERSION="${{ inputs.version }}"
-            if [ -z "$VERSION" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              VERSION=${GITHUB_REF#refs/tags/}
-            fi
-          fi
-
-          PLATFORM="${NUGEX_DockerPlatform:-all}"
-          DRY_RUN="${{ inputs.dry_run }}"
+          VERSION="${{ steps.resolve-inputs.outputs.version }}"
+          PLATFORM="${{ steps.resolve-inputs.outputs.platform }}"
+          DRY_RUN="${{ steps.resolve-inputs.outputs.dry_run }}"
+          SOURCE="${{ steps.resolve-inputs.outputs.source }}"
           REGISTRY="${{ secrets.ALIYUN_ACR_REGISTRY }}"
 
-          # Parse version for display
           CLEAN_VERSION="${VERSION#v}"
           MAJOR=$(echo ${CLEAN_VERSION} | cut -d. -f1)
           MINOR=$(echo ${CLEAN_VERSION} | cut -d. -f2)
 
-          # Check if stable release
           IS_STABLE=true
           if [[ ${CLEAN_VERSION} =~ ^(rc|beta|alpha|preview|dev)[0-9]*$ ]] || [[ ${CLEAN_VERSION} =~ -(rc|beta|alpha|preview|dev) ]] || [[ ${CLEAN_VERSION} =~ (rc|beta|alpha|preview|dev)- ]]; then
             IS_STABLE=false
@@ -140,6 +137,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Registry**: Aliyun ACR (${REGISTRY})" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger Source**: ${SOURCE}" >> $GITHUB_STEP_SUMMARY
           echo "- **Platform**: ${PLATFORM}" >> $GITHUB_STEP_SUMMARY
           echo "- **Dry Run**: ${DRY_RUN}" >> $GITHUB_STEP_SUMMARY
           echo "- **Is Stable**: ${IS_STABLE}" >> $GITHUB_STEP_SUMMARY

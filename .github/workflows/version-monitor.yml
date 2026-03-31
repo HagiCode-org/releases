@@ -30,6 +30,8 @@ jobs:
       has_new_versions: ${{ steps.version-monitor.outputs.has_new_versions }}
       new_versions: ${{ steps.version-monitor.outputs.new_versions }}
       latest_version: ${{ steps.version-monitor.outputs.latest_version }}
+      selected_version: ${{ steps.version-monitor.outputs.selected_version }}
+      deferred_versions: ${{ steps.version-monitor.outputs.deferred_versions }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -74,7 +76,7 @@ jobs:
             {% if github.event_name == 'push' && github.ref == 'refs/heads/main' %}
             ✅ Main 分支更新 - 触发 Docker 构建
             {% elif steps.version-monitor.outputs.has_new_versions == 'true' %}
-            ✨ 发现新版本 - {{ steps.version-monitor.outputs.new_versions }}
+            ✨ 发现新版本 - {{ steps.version-monitor.outputs.selected_version }}
             {% elif steps.version-monitor.outputs.has_new_versions == 'true' == false && job.status == 'success' %}
             ℹ️ 未发现新版本
             {% elif steps.trigger-docker-build.outcome == 'success' %}
@@ -93,7 +95,8 @@ jobs:
 
             {% if steps.version-monitor.outputs.has_new_versions == 'true' %}
             **监控结果**: 发现新版本
-            **版本**: {{ steps.version-monitor.outputs.new_versions }}
+            **自动处理版本**: {{ steps.version-monitor.outputs.selected_version }}
+            **延后版本**: {{ steps.version-monitor.outputs.deferred_versions }}
             {% elif steps.version-monitor.outputs.has_new_versions == 'true' == false && job.status == 'success' %}
             **监控结果**: 未发现新版本
             {% elif steps.trigger-docker-build.outcome == 'success' %}
@@ -107,7 +110,8 @@ jobs:
 
             {% elif steps.version-monitor.outputs.has_new_versions == 'true' %}
             **事件**: Version Monitor 检测到新版本
-            **版本**: {{ steps.version-monitor.outputs.new_versions }}
+            **自动处理版本**: {{ steps.version-monitor.outputs.selected_version }}
+            **延后版本**: {{ steps.version-monitor.outputs.deferred_versions }}
             **仓库**: ${{ github.repository }}
             **触发的工作流**:
             • GitHub Release (version-monitor-release)
