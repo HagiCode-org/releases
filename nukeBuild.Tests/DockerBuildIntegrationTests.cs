@@ -130,4 +130,57 @@ public class DockerBuildIntegrationTests
         Assert.Contains("CODEX_API_KEY > OPENAI_API_KEY", entrypoint);
         Assert.Contains("API key source: $CODEX_API_SOURCE (masked)", entrypoint);
     }
+
+    [Fact]
+    public void ReleaseWorkflow_ShouldUseDispatchAndExplicitManualVersionOnly()
+    {
+        var workflow = ReadRepoFile(".github/workflows/github-release-workflow.yml");
+
+        Assert.Contains("repository_dispatch:", workflow);
+        Assert.Contains("types: [version-monitor-release]", workflow);
+        Assert.Contains("workflow_dispatch:", workflow);
+        Assert.Contains("description: 'Version to release (e.g., 1.2.3)'", workflow);
+        Assert.Contains("required: true", workflow);
+        Assert.DoesNotContain("\npush:\n", workflow);
+        Assert.DoesNotContain("refs/tags/", workflow);
+        Assert.Contains("VERSION=\"${{ github.event.client_payload.version }}\"", workflow);
+        Assert.Contains("VERSION=\"${{ inputs.version }}\"", workflow);
+    }
+
+    [Theory]
+    [InlineData(".github/workflows/docker-build-aliyun-acr.yml", "version-monitor-docker-aliyun")]
+    [InlineData(".github/workflows/docker-build-azure-acr.yml", "version-monitor-docker-azure")]
+    [InlineData(".github/workflows/docker-build-dockerhub.yml", "version-monitor-docker-dockerhub")]
+    public void DockerWorkflows_ShouldRemoveTagPushAndResolveVersionConsistently(
+        string workflowPath,
+        string dispatchType)
+    {
+        var workflow = ReadRepoFile(workflowPath);
+
+        Assert.Contains("workflow_dispatch:", workflow);
+        Assert.Contains("repository_dispatch:", workflow);
+        Assert.Contains($"types: [{dispatchType}]", workflow);
+        Assert.Contains("description: 'Version to build (e.g., 1.2.3)'", workflow);
+        Assert.Contains("required: true", workflow);
+        Assert.Contains("VERSION=\"${{ github.event.client_payload.version }}\"", workflow);
+        Assert.Contains("VERSION=\"${{ inputs.version }}\"", workflow);
+        Assert.Contains("echo \"version=$VERSION\" >> \"$GITHUB_OUTPUT\"", workflow);
+        Assert.Contains("echo \"- **Version**: ${VERSION}\" >> $GITHUB_STEP_SUMMARY", workflow);
+        Assert.DoesNotContain("\npush:\n", workflow);
+        Assert.DoesNotContain("refs/tags/", workflow);
+    }
+
+    [Fact]
+    public void VersionMonitorTarget_ShouldExposeSelectedAndDeferredVersionsAndDispatchOnlyOneVersion()
+    {
+        var versionMonitorTarget = ReadRepoFile("nukeBuild/Build.Targets.VersionMonitor.cs");
+
+        Assert.Contains("SetGitHubOutput(\"selected_version\", selectedVersion);", versionMonitorTarget);
+        Assert.Contains("SetGitHubOutput(\"deferred_versions\", string.Join(\", \", deferredVersions));", versionMonitorTarget);
+        Assert.Contains("LogVersionSelectionSummary(releasePlan);", versionMonitorTarget);
+        Assert.Contains("Dry-run mode enabled - only selected version {SelectedVersion} would be dispatched; deferred versions remain untouched", versionMonitorTarget);
+        Assert.Contains("TriggerReleaseForVersion(selectedVersion);", versionMonitorTarget);
+        Assert.Contains("TriggerDockerDispatch(selectedVersion);", versionMonitorTarget);
+        Assert.DoesNotContain("foreach (var version in newVersions)", versionMonitorTarget);
+    }
 }

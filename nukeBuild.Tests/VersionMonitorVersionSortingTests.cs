@@ -42,6 +42,36 @@ public class VersionMonitorVersionSortingTests
     }
 
     [Fact]
+    public void CreatePlan_ShouldSelectOnlyLatestUnpublishedVersionForAutomaticDispatch()
+    {
+        var azureVersions = new[] { "1.1.0", "1.3.0", "1.2.0" };
+        var githubReleases = new[] { "v1.0.0" };
+
+        var plan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
+
+        Assert.Equal(new[] { "1.3.0", "1.2.0", "1.1.0" }, plan.SortedAzureVersions);
+        Assert.Equal(new[] { "1.3.0", "1.2.0", "1.1.0" }, plan.NewVersions);
+        Assert.Equal("1.3.0", plan.SelectedVersion);
+        Assert.Equal(new[] { "1.2.0", "1.1.0" }, plan.DeferredVersions);
+        Assert.Equal(new[] { "1.3.0" }, plan.AutoDispatchVersions);
+    }
+
+    [Fact]
+    public void CreatePlan_ShouldKeepAutomaticDispatchEmptyWhenNoUnpublishedVersionsExist()
+    {
+        var azureVersions = new[] { "2.0.0", "1.9.0" };
+        var githubReleases = new[] { "v2.0.0", "v1.9.0" };
+
+        var plan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
+
+        Assert.False(plan.HasSelectedVersion);
+        Assert.Equal(string.Empty, plan.SelectedVersion);
+        Assert.Empty(plan.DeferredVersions);
+        Assert.Empty(plan.AutoDispatchVersions);
+        Assert.Equal("2.0.0", plan.LatestVersion);
+    }
+
+    [Fact]
     public void SortDescending_ShouldPreferStableReleaseOverSameBaselinePrerelease()
     {
         var versions = new[] { "1.2.3-beta.2", "1.2.3", "1.2.3-beta.10", "1.2.4-rc.1" };
