@@ -31,6 +31,8 @@ partial class Build
         List<string> sortedAzureVersions;
         List<string> githubReleases;
         List<string> newVersions;
+        List<string> deferredVersions;
+        string selectedVersion;
 
         adapter = new AzureBlobAdapter();
 
@@ -59,6 +61,8 @@ partial class Build
         releasePlan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
         sortedAzureVersions = releasePlan.SortedAzureVersions.ToList();
         newVersions = releasePlan.NewVersions.ToList();
+        deferredVersions = releasePlan.DeferredVersions.ToList();
+        selectedVersion = releasePlan.SelectedVersion;
 
         foreach (var ignoredVersion in releasePlan.IgnoredVersions)
         {
@@ -75,11 +79,18 @@ partial class Build
         SetGitHubOutput("has_new_versions", hasNewVersions ? "true" : "false");
         SetGitHubOutput("new_versions", string.Join(", ", newVersions));
         SetGitHubOutput("latest_version", latestVersion);
+        SetGitHubOutput("selected_version", selectedVersion);
+        SetGitHubOutput("deferred_versions", string.Join(", ", deferredVersions));
+
+        LogVersionSelectionSummary(releasePlan);
 
         // If ListOnly mode, just output versions without triggering releases
         if (EffectiveListOnly)
         {
-            Log.Information("List-only mode enabled - will not trigger releases");
+            Log.Information(
+                "List-only mode enabled - selected version remains {SelectedVersion}; deferred versions remain {DeferredVersions}",
+                FormatVersionValue(selectedVersion),
+                FormatVersions(deferredVersions));
             Log.Information("Version Monitor list-only mode completed");
             return;
         }
@@ -94,13 +105,27 @@ partial class Build
         Log.Information("Found {Count} new versions to release: {Versions}",
             newVersions.Count,
             string.Join(", ", newVersions));
+        Log.Information(
+            "Automatic trigger boundary for this run: selected version {SelectedVersion}; deferred versions {DeferredVersions}",
+            FormatVersionValue(selectedVersion),
+            FormatVersions(deferredVersions));
 
-        // Trigger release for each new version
-        foreach (var version in newVersions)
+        if (string.IsNullOrWhiteSpace(selectedVersion))
         {
-            TriggerReleaseForVersion(version);
-            TriggerDockerDispatch(version);
+            Log.Warning("No selected version resolved for automated processing. Skipping dispatch.");
+            return;
         }
+
+        if (EffectiveDryRun)
+        {
+            Log.Information(
+                "Dry-run mode enabled - only selected version {SelectedVersion} would be dispatched; deferred versions remain untouched: {DeferredVersions}",
+                selectedVersion,
+                FormatVersions(deferredVersions));
+        }
+
+        TriggerReleaseForVersion(selectedVersion);
+        TriggerDockerDispatch(selectedVersion);
 
         Log.Information("Version Monitor completed successfully");
     }
@@ -680,5 +705,24 @@ partial class Build
                     version, timeout.TotalSeconds);
             throw new Exception($"Dispatch verification failed for version {version}");
         }
+    }
+
+    static void LogVersionSelectionSummary(ReleaseVersionMonitorPlan releasePlan)
+    {
+        Log.Information("Selected version for this run: {SelectedVersion}",
+            FormatVersionValue(releasePlan.SelectedVersion));
+        Log.Information("Deferred versions for later runs/manual handling: {DeferredVersions}",
+            FormatVersions(releasePlan.DeferredVersions));
+    }
+
+    static string FormatVersions(IEnumerable<string> versions)
+    {
+        var items = versions.Where(static version => !string.IsNullOrWhiteSpace(version)).ToList();
+        return items.Count == 0 ? "(none)" : string.Join(", ", items);
+    }
+
+    static string FormatVersionValue(string version)
+    {
+        return string.IsNullOrWhiteSpace(version) ? "(none)" : version;
     }
 }

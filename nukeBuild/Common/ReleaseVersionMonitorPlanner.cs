@@ -4,9 +4,14 @@ public sealed record ReleaseVersionMonitorPlan(
     IReadOnlyList<string> SortedAzureVersions,
     IReadOnlyList<string> NewVersions,
     IReadOnlyList<string> IgnoredVersions,
-    string LatestVersion)
+    string LatestVersion,
+    string SelectedVersion,
+    IReadOnlyList<string> DeferredVersions)
 {
     public bool HasNewVersions => NewVersions.Count > 0;
+    public bool HasSelectedVersion => !string.IsNullOrWhiteSpace(SelectedVersion);
+    public IReadOnlyList<string> AutoDispatchVersions =>
+        HasSelectedVersion ? new[] { SelectedVersion } : Array.Empty<string>();
 }
 
 public static partial class ReleaseVersionMonitorPlanner
@@ -41,8 +46,16 @@ public static partial class ReleaseVersionMonitorPlanner
         var latestVersion = newVersions.Count > 0
             ? newVersions[0]
             : sortedAzureVersions.FirstOrDefault() ?? string.Empty;
+        var selectedVersion = newVersions.FirstOrDefault() ?? string.Empty;
+        var deferredVersions = newVersions.Skip(1).ToList();
 
-        return new ReleaseVersionMonitorPlan(sortedAzureVersions, newVersions, invalidVersions, latestVersion);
+        return new ReleaseVersionMonitorPlan(
+            sortedAzureVersions,
+            newVersions,
+            invalidVersions,
+            latestVersion,
+            selectedVersion,
+            deferredVersions);
     }
 
     public static bool HasPublishedRelease(string version, IEnumerable<string> githubReleases)
