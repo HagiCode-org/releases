@@ -36,13 +36,13 @@ public class VersionMonitorVersionSortingTests
         var plan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
 
         Assert.Equal(new[] { "36", "10", "9" }, plan.SortedAzureVersions);
-        Assert.Equal(new[] { "10" }, plan.NewVersions);
-        Assert.True(plan.HasNewVersions);
-        Assert.Equal("10", plan.LatestVersion);
+        Assert.Empty(plan.NewVersions);
+        Assert.False(plan.HasNewVersions);
+        Assert.Equal("36", plan.LatestVersion);
     }
 
     [Fact]
-    public void CreatePlan_ShouldSelectOnlyLatestUnpublishedVersionForAutomaticDispatch()
+    public void CreatePlan_ShouldSelectOnlyLatestAzureVersionForAutomaticDispatch()
     {
         var azureVersions = new[] { "1.1.0", "1.3.0", "1.2.0" };
         var githubReleases = new[] { "v1.0.0" };
@@ -50,10 +50,25 @@ public class VersionMonitorVersionSortingTests
         var plan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
 
         Assert.Equal(new[] { "1.3.0", "1.2.0", "1.1.0" }, plan.SortedAzureVersions);
-        Assert.Equal(new[] { "1.3.0", "1.2.0", "1.1.0" }, plan.NewVersions);
+        Assert.Equal(new[] { "1.3.0" }, plan.NewVersions);
         Assert.Equal("1.3.0", plan.SelectedVersion);
-        Assert.Equal(new[] { "1.2.0", "1.1.0" }, plan.DeferredVersions);
+        Assert.Empty(plan.DeferredVersions);
         Assert.Equal(new[] { "1.3.0" }, plan.AutoDispatchVersions);
+    }
+
+    [Fact]
+    public void CreatePlan_ShouldIgnoreHistoricalGapsWhenLatestAzureVersionAlreadyPublished()
+    {
+        var azureVersions = new[] { "0.1.0-beta.37", "0.1.0-beta.18", "0.1.0-beta.17", "0.1.0-beta.16" };
+        var githubReleases = new[] { "0.1.0-beta.37" };
+
+        var plan = ReleaseVersionMonitorPlanner.CreatePlan(azureVersions, githubReleases);
+
+        Assert.Equal("0.1.0-beta.37", plan.LatestVersion);
+        Assert.Empty(plan.NewVersions);
+        Assert.False(plan.HasNewVersions);
+        Assert.Equal(string.Empty, plan.SelectedVersion);
+        Assert.Empty(plan.DeferredVersions);
     }
 
     [Fact]

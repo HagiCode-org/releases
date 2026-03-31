@@ -39,15 +39,16 @@ public static partial class ReleaseVersionMonitorPlanner
         }
 
         var sortedAzureVersions = SemanticVersionOrdering.SortDescending(validVersions).ToList();
-        var newVersions = sortedAzureVersions
-            .Where(version => !HasPublishedRelease(version, githubReleases))
-            .ToList();
+        var latestVersion = sortedAzureVersions.FirstOrDefault() ?? string.Empty;
+        var latestVersionNeedsSync =
+            !string.IsNullOrWhiteSpace(latestVersion) &&
+            !HasPublishedRelease(latestVersion, githubReleases);
 
-        var latestVersion = newVersions.Count > 0
-            ? newVersions[0]
-            : sortedAzureVersions.FirstOrDefault() ?? string.Empty;
-        var selectedVersion = newVersions.FirstOrDefault() ?? string.Empty;
-        var deferredVersions = newVersions.Skip(1).ToList();
+        var newVersions = latestVersionNeedsSync
+            ? new List<string> { latestVersion }
+            : [];
+        var selectedVersion = latestVersionNeedsSync ? latestVersion : string.Empty;
+        var deferredVersions = new List<string>();
 
         return new ReleaseVersionMonitorPlan(
             sortedAzureVersions,

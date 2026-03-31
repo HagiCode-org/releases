@@ -98,11 +98,11 @@ partial class Build
         // Normal mode - download and trigger releases
         if (newVersions.Count == 0)
         {
-            Log.Information("No new versions to release. All Azure versions are already on GitHub.");
+            Log.Information("Latest Azure version is already present on GitHub. Historical gaps are ignored by this monitor.");
             return;
         }
 
-        Log.Information("Found {Count} new versions to release: {Versions}",
+        Log.Information("Latest Azure version requires release sync ({Count}): {Versions}",
             newVersions.Count,
             string.Join(", ", newVersions));
         Log.Information(
