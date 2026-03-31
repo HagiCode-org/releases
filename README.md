@@ -34,6 +34,21 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 
 Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release.
 
+## Trigger boundaries
+
+Automatic publishing now has a single entry point:
+
+- `./build.sh VersionMonitor` still discovers every unpublished Azure version, but it auto-selects only the newest unpublished version for the current run
+- GitHub Release automation starts only from `repository_dispatch` with event type `version-monitor-release`
+- Docker automation starts only from `repository_dispatch` with registry-specific event types (`version-monitor-docker-aliyun`, `version-monitor-docker-azure`, `version-monitor-docker-dockerhub`)
+- Older unpublished versions are reported as deferred backlog for later scheduled runs or manual handling
+
+Manual reruns stay available, but they are explicit:
+
+- `github-release-workflow.yml` requires `workflow_dispatch.version`
+- Each `docker-build-*.yml` workflow requires `workflow_dispatch.version` and keeps optional `platform` / `dry_run`
+- Creating or reusing a Git tag no longer auto-starts GitHub Release or Docker workflows
+
 ## Container CLI contract
 
 The unified runtime image bakes only the core release CLI baseline:
