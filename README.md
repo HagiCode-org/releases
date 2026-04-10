@@ -51,14 +51,32 @@ Manual reruns stay available, but they are explicit:
 
 ## Container CLI contract
 
-The unified runtime image bakes only the core release CLI baseline:
+The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 24 is installed through an image-managed NVM layout under `/usr/local/nvm`, while baked CLIs remain installed under `/home/hagicode/.npm-global`.
+
+Only `hagicode` is supported as the non-root runtime user. When `PUID` and `PGID` are provided, container startup remaps that single user and reconciles ownership for `/home/hagicode`, its `.claude` state, and `/app`.
+
+The unified runtime image bakes only the primary agent CLI baseline:
 
 - `claude`
-- `openspec`
 - `opencode`
 - `codex`
 
+`openspec` remains in the image as the retained workflow tool for spec-driven changes, but it is documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
+
 Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because skill management replaces its previous shipped-runtime workflow.
+
+## Startup SSH bootstrap
+
+The release image now installs `openssh-client` and can import a mounted private key during startup when SSH access is explicitly required.
+
+- Set `SSH_PRIVATE_KEY_PATH` to a mounted private key file to enable bootstrap
+- Optionally set `SSH_KNOWN_HOSTS_PATH` to import a mounted `known_hosts` file
+- Optionally set `SSH_STRICT_HOST_KEY_CHECKING` to override the documented default of `accept-new`
+- Leave `SSH_PRIVATE_KEY_PATH` unset to skip SSH bootstrap entirely
+
+At startup the entrypoint copies the mounted key into `/home/hagicode/.ssh/imported_key`, writes deterministic SSH config at `/home/hagicode/.ssh/config`, fixes ownership for the `hagicode` runtime user, and exports `GIT_SSH_COMMAND` so downstream `git` and `ssh` commands use the imported identity.
+
+If `SSH_PRIVATE_KEY_PATH` is set but the file is missing, unreadable, or not a regular file, container startup fails fast with path-level diagnostics and never prints secret contents.
 
 ## Ecosystem role
 

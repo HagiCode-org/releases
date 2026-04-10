@@ -73,6 +73,16 @@ codex --version
 codex --help
 ```
 
+### Primary Agent CLI Baseline
+
+The unified release image keeps only the primary agent CLI baseline baked into the container:
+
+- `claude`
+- `opencode`
+- `codex`
+
+`openspec` is still retained in the image, but it is documented as workflow tooling rather than part of the primary provider-facing agent CLI baseline.
+
 ### UI-managed Provider CLIs
 
 The unified release image no longer pre-installs provider CLIs that HagiCode can provision through the hero/system UI. Those providers now follow the product-managed install flow instead of the baked container baseline.
@@ -107,12 +117,16 @@ Runtime notes:
 
 ## Docker Integration
 
-The Docker base image pre-installs only the retained container baseline:
+The Docker base image pre-installs the retained workflow + runtime baseline:
 
-- `claude`
-- `openspec`
-- `opencode`
-- `codex`
+- Primary agent CLIs: `claude`, `opencode`, `codex`
+- Workflow tool: `openspec`
+- Runtime SSH client: `openssh-client`
+
+Container foundation notes:
+- Base stages start from `debian:bookworm-slim`, not the official `node` image variants.
+- Node.js 24 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
+- `/home/hagicode/.npm-global` remains the CLI prefix, and `hagicode` is the only supported non-root runtime user.
 
 Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because skill management replaces its previous runtime role.
 - **Base Images**:
@@ -172,6 +186,20 @@ docker run -v ~/claude-config:/claude-mount hagicode/hagicode
 ```
 
 The container will automatically copy settings from `/claude-mount/settings.json` to the hagicode user's `.claude` directory.
+
+#### SSH Bootstrap Configuration
+
+The Docker entrypoint also supports startup-time SSH bootstrap for mounted secrets:
+
+- `SSH_PRIVATE_KEY_PATH`: required to enable SSH bootstrap; unset means the entrypoint skips SSH preparation
+- `SSH_KNOWN_HOSTS_PATH`: optional readable file copied into `/home/hagicode/.ssh/known_hosts`
+- `SSH_STRICT_HOST_KEY_CHECKING`: optional override for the generated SSH config; defaults to `accept-new`
+
+Runtime behavior:
+- The entrypoint copies the mounted private key into `/home/hagicode/.ssh/imported_key`
+- It writes deterministic SSH config to `/home/hagicode/.ssh/config`, exports `GIT_SSH_COMMAND`, and constrains the runtime to `IdentitiesOnly yes`
+- `.ssh` is permission-hardened (`700` directory, `600` key, `644` known_hosts/config`) and all generated files stay owned by `hagicode`
+- If an explicitly configured SSH path is missing, unreadable, or not a file, startup fails fast with path-level diagnostics and never prints secret contents
 
 ## Build System Integration
 

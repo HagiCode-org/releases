@@ -107,9 +107,30 @@ When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to 
 
 These variables are used inside Docker containers to configure AI agents:
 
-- Baked container baseline: `claude`, `openspec`, `opencode`, and `codex`
+- Clean runtime base: `debian:bookworm-slim`
+- Shared Node.js toolchain: Node 24 via NVM under `/usr/local/nvm`
+- Supported non-root runtime user: `hagicode` only
+- Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`
+- Retained workflow tool: `openspec`
 - UI-managed installs: `copilot`, `codebuddy`, and `qodercli`
 - Superseded helper: `uipro` is no longer shipped because skill management replaces its runtime role
+
+### SSH Bootstrap Configuration
+
+These variables control the startup-time SSH private key import flow used by downstream `git` and `ssh` commands.
+
+| Variable | Description | Required | Default | Example |
+|----------|-------------|----------|---------|---------|
+| `SSH_PRIVATE_KEY_PATH` | Mounted private key file copied into `/home/hagicode/.ssh/imported_key` during startup | No | Unset (skip SSH bootstrap) | `/runtime-secrets/id_ed25519` |
+| `SSH_KNOWN_HOSTS_PATH` | Optional mounted `known_hosts` file copied into `/home/hagicode/.ssh/known_hosts` | No | Unset (create managed runtime file) | `/runtime-secrets/known_hosts` |
+| `SSH_STRICT_HOST_KEY_CHECKING` | Final `StrictHostKeyChecking` value written into `/home/hagicode/.ssh/config` | No | `accept-new` | `yes` |
+
+**Behavior notes**:
+- If `SSH_PRIVATE_KEY_PATH` is unset, container startup skips SSH bootstrap and continues with the existing non-SSH flow.
+- If `SSH_PRIVATE_KEY_PATH` is set but missing, unreadable, or not a regular file, startup exits non-zero with path-level diagnostics and never prints key contents.
+- If `SSH_KNOWN_HOSTS_PATH` is set, it must also point to a readable file; otherwise startup fails before the app launches.
+- The entrypoint copies the key, writes deterministic SSH config, locks down permissions (`700` on `.ssh`, `600` on the imported key, `644` on `known_hosts` and `config`), and exports `GIT_SSH_COMMAND="ssh -F /home/hagicode/.ssh/config"`.
+- `SSH_STRICT_HOST_KEY_CHECKING` accepts `yes`, `no`, `ask`, `accept-new`, or `off`. The documented default is `accept-new`.
 
 ### Claude Code Configuration
 
@@ -210,6 +231,11 @@ These variables are passed through to the container runtime for QoderCLI usage.
 | `PUID` | User ID to run container as | No | `1000` |
 | `PGID` | Group ID to run container as | No | `1000` |
 
+**Behavior notes**:
+- `PUID` / `PGID` remapping only targets the `hagicode` user; the image does not rely on the upstream `node` user or `/home/node`.
+- Container startup reconciles ownership for `/home/hagicode`, `/home/hagicode/.claude`, `/home/hagicode/.npm-global`, and `/app` before launching the app.
+- Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`, so `node`, `npm`, `npx`, and baked CLIs do not require sourcing a shell profile.
+
 ## GitHub Actions Secrets
 
 When using GitHub Actions, configure these secrets in your repository settings:
@@ -279,6 +305,9 @@ Use provider-specific runtime variables such as Copilot, CodeBuddy, or Qoder onl
 
 ```bash
 docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
+           -e SSH_PRIVATE_KEY_PATH="/runtime-secrets/id_ed25519" \
+           -e SSH_KNOWN_HOSTS_PATH="/runtime-secrets/known_hosts" \
+           -e SSH_STRICT_HOST_KEY_CHECKING="accept-new" \
            -e COPILOT_BASE_URL="https://api.githubcopilot.com" \
            -e COPILOT_API_KEY="ghp_..." \
            -e CODEX_BASE_URL="https://api.openai.com/v1" \
@@ -288,6 +317,7 @@ docker run -e ANTHROPIC_AUTH_TOKEN="sk-ant-..." \
            -e QODER_PERSONAL_ACCESS_TOKEN="qdr_pat_..." \
            -e CLAUDE_HOST_CONFIG_ENABLED="true" \
            -v ~/claude-config:/claude-mount \
+           -v ~/runtime-secrets:/runtime-secrets:ro \
            hagicode/hagicode:1.2.3
 ```
 
@@ -302,6 +332,9 @@ services:
     image: hagicode.azurecr.io/hagicode:1.2.3
     environment:
       - ANTHROPIC_AUTH_TOKEN=sk-ant-...
+      - SSH_PRIVATE_KEY_PATH=/runtime-secrets/id_ed25519
+      - SSH_KNOWN_HOSTS_PATH=/runtime-secrets/known_hosts
+      - SSH_STRICT_HOST_KEY_CHECKING=accept-new
       - COPILOT_BASE_URL=https://api.githubcopilot.com
       - COPILOT_API_KEY=ghp_...
       - CODEX_BASE_URL=https://api.openai.com/v1
@@ -310,6 +343,7 @@ services:
       - CLAUDE_HOST_CONFIG_ENABLED=true
     volumes:
       - ./claude-config:/claude-mount
+      - ./runtime-secrets:/runtime-secrets:ro
 ```
 
 ## Security Best Practices
@@ -339,6 +373,16 @@ services:
 **Error**: Claude Code not configured
 
 **Solution**: Set `ANTHROPIC_AUTH_TOKEN` or mount host config to `/claude-mount`
+
+### SSH Bootstrap Fails Before App Startup
+
+**Error**: `SSH_PRIVATE_KEY_PATH points to a missing path` or similar startup validation output
+
+**Solution**:
+1. Confirm `SSH_PRIVATE_KEY_PATH` points to a mounted readable file
+2. If `SSH_KNOWN_HOSTS_PATH` is set, confirm it also points to a readable file
+3. Use a supported `SSH_STRICT_HOST_KEY_CHECKING` value (`yes`, `no`, `ask`, `accept-new`, or `off`)
+4. Keep secrets mounted as files; this contract does not support inline private key environment variables
 
 ### Codex Not Using Expected Endpoint/Key
 
