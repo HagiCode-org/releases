@@ -4,32 +4,196 @@
 
 set -e
 
+HAGICODE_USER="hagicode"
+HAGICODE_GROUP="hagicode"
+HAGICODE_HOME="/home/hagicode"
+HAGICODE_CLAUDE_DIR="${HAGICODE_HOME}/.claude"
+HAGICODE_CLAUDE_STATE_FILE="${HAGICODE_HOME}/.claude.json"
+HAGICODE_NPM_PREFIX="${HAGICODE_HOME}/.npm-global"
+HAGICODE_SSH_DIR="${HAGICODE_HOME}/.ssh"
+HAGICODE_IMPORTED_SSH_KEY="${HAGICODE_SSH_DIR}/imported_key"
+HAGICODE_IMPORTED_KNOWN_HOSTS="${HAGICODE_SSH_DIR}/known_hosts"
+HAGICODE_SSH_CONFIG_FILE="${HAGICODE_SSH_DIR}/config"
+HAGICODE_SSH_MANAGED_BEGIN="# >>> HAGICODE SSH BOOTSTRAP >>>"
+HAGICODE_SSH_MANAGED_END="# <<< HAGICODE SSH BOOTSTRAP <<<"
+SSH_STRICT_HOST_KEY_CHECKING_DEFAULT="accept-new"
+
+export HOME="$HAGICODE_HOME"
+export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HAGICODE_NPM_PREFIX}"
+export PATH="${HAGICODE_NPM_PREFIX}/bin:${PATH}"
+
+run_as_hagicode() {
+    gosu "$HAGICODE_USER" env \
+        HOME="$HAGICODE_HOME" \
+        USER="$HAGICODE_USER" \
+        LOGNAME="$HAGICODE_USER" \
+        PATH="$PATH" \
+        NPM_CONFIG_PREFIX="$HAGICODE_NPM_PREFIX" \
+        "$@"
+}
+
+exec_as_hagicode() {
+    exec gosu "$HAGICODE_USER" env \
+        HOME="$HAGICODE_HOME" \
+        USER="$HAGICODE_USER" \
+        LOGNAME="$HAGICODE_USER" \
+        PATH="$PATH" \
+        NPM_CONFIG_PREFIX="$HAGICODE_NPM_PREFIX" \
+        "$@"
+}
+
+ensure_hagicode_runtime_paths() {
+    mkdir -p "$HAGICODE_CLAUDE_DIR" "$HAGICODE_NPM_PREFIX" /app
+    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_HOME" /app
+}
+
+fail_startup() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+validate_readable_file_path() {
+    local env_name="$1"
+    local file_path="$2"
+
+    if [ ! -e "$file_path" ]; then
+        fail_startup "${env_name} points to a missing path: ${file_path}"
+    fi
+
+    if [ ! -f "$file_path" ]; then
+        fail_startup "${env_name} must point to a readable file: ${file_path}"
+    fi
+
+    if [ ! -r "$file_path" ]; then
+        fail_startup "${env_name} is not readable by container startup: ${file_path}"
+    fi
+}
+
+validate_strict_host_key_checking() {
+    local strict_value="$1"
+
+    case "$strict_value" in
+        yes|no|ask|accept-new|off)
+            ;;
+        *)
+            fail_startup "SSH_STRICT_HOST_KEY_CHECKING must be one of: yes, no, ask, accept-new, off"
+            ;;
+    esac
+}
+
+strip_managed_ssh_block() {
+    local config_path="$1"
+
+    if [ ! -f "$config_path" ]; then
+        return 0
+    fi
+
+    awk -v begin="$HAGICODE_SSH_MANAGED_BEGIN" -v end="$HAGICODE_SSH_MANAGED_END" '
+        $0 == begin { skip = 1; next }
+        $0 == end { skip = 0; next }
+        skip == 0 { print }
+    ' "$config_path"
+}
+
+configure_ssh_private_key_if_needed() {
+    local private_key_path="${SSH_PRIVATE_KEY_PATH:-}"
+    local known_hosts_path="${SSH_KNOWN_HOSTS_PATH:-}"
+    local strict_host_key_checking="${SSH_STRICT_HOST_KEY_CHECKING:-$SSH_STRICT_HOST_KEY_CHECKING_DEFAULT}"
+    local temp_config=""
+    local temp_existing_config=""
+
+    if [ -z "$private_key_path" ]; then
+        echo "✓ SSH bootstrap skipped: SSH_PRIVATE_KEY_PATH is not set."
+        return 0
+    fi
+
+    validate_readable_file_path "SSH_PRIVATE_KEY_PATH" "$private_key_path"
+
+    if [ -n "$known_hosts_path" ]; then
+        validate_readable_file_path "SSH_KNOWN_HOSTS_PATH" "$known_hosts_path"
+    fi
+
+    validate_strict_host_key_checking "$strict_host_key_checking"
+
+    mkdir -p "$HAGICODE_SSH_DIR"
+    cp "$private_key_path" "$HAGICODE_IMPORTED_SSH_KEY"
+
+    if [ -n "$known_hosts_path" ]; then
+        cp "$known_hosts_path" "$HAGICODE_IMPORTED_KNOWN_HOSTS"
+    else
+        : > "$HAGICODE_IMPORTED_KNOWN_HOSTS"
+    fi
+
+    temp_config="$(mktemp)"
+    cat > "$temp_config" <<EOF
+$HAGICODE_SSH_MANAGED_BEGIN
+Host *
+  IdentityFile $HAGICODE_IMPORTED_SSH_KEY
+  IdentitiesOnly yes
+  UserKnownHostsFile $HAGICODE_IMPORTED_KNOWN_HOSTS
+  StrictHostKeyChecking $strict_host_key_checking
+$HAGICODE_SSH_MANAGED_END
+EOF
+
+    if [ -f "$HAGICODE_SSH_CONFIG_FILE" ]; then
+        temp_existing_config="$(mktemp)"
+        strip_managed_ssh_block "$HAGICODE_SSH_CONFIG_FILE" > "$temp_existing_config"
+
+        if [ -s "$temp_existing_config" ]; then
+            printf "\n" >> "$temp_config"
+            cat "$temp_existing_config" >> "$temp_config"
+        fi
+    fi
+
+    mv "$temp_config" "$HAGICODE_SSH_CONFIG_FILE"
+    rm -f "$temp_existing_config"
+
+    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_SSH_DIR"
+    chmod 700 "$HAGICODE_SSH_DIR"
+    chmod 600 "$HAGICODE_IMPORTED_SSH_KEY"
+    chmod 644 "$HAGICODE_IMPORTED_KNOWN_HOSTS" "$HAGICODE_SSH_CONFIG_FILE"
+
+    export GIT_SSH_COMMAND="ssh -F ${HAGICODE_SSH_CONFIG_FILE}"
+    export HAGICODE_IMPORTED_SSH_KEY_PATH="$HAGICODE_IMPORTED_SSH_KEY"
+    export HAGICODE_IMPORTED_KNOWN_HOSTS_PATH="$HAGICODE_IMPORTED_KNOWN_HOSTS"
+
+    echo "✓ SSH bootstrap configured from SSH_PRIVATE_KEY_PATH: $private_key_path"
+    if [ -n "$known_hosts_path" ]; then
+        echo "  Known hosts source: SSH_KNOWN_HOSTS_PATH=$known_hosts_path"
+    else
+        echo "  Known hosts source: none provided; using managed runtime file"
+    fi
+    echo "  StrictHostKeyChecking: $strict_host_key_checking"
+    echo "  Git/SSH wiring: GIT_SSH_COMMAND uses ${HAGICODE_SSH_CONFIG_FILE}"
+}
+
 # Configure user UID/GID to match host user if specified
 # This allows proper file permissions for mounted volumes
 if [ -n "$PUID" ] && [ -n "$PGID" ]; then
     echo "Configuring user permissions..."
 
     # Check if user needs to be created/modified
-    if ! id hagicode >/dev/null 2>&1; then
+    if ! id "$HAGICODE_USER" >/dev/null 2>&1; then
         # User doesn't exist, create it
-        groupadd -g "$PGID" hagicode
-        useradd -u "$PUID" -g "$PGID" -s /bin/bash -m hagicode
+        groupadd -g "$PGID" "$HAGICODE_GROUP"
+        useradd -u "$PUID" -g "$PGID" -s /bin/bash -m -d "$HAGICODE_HOME" "$HAGICODE_USER"
         echo "✓ Created hagicode user with UID=$PUID, GID=$PGID"
     else
         # User exists, check if UID/GID need to be updated
-        CURRENT_UID=$(id -u hagicode)
-        CURRENT_GID=$(id -g hagicode)
+        CURRENT_UID=$(id -u "$HAGICODE_USER")
+        CURRENT_GID=$(id -g "$HAGICODE_USER")
 
         if [ "$CURRENT_UID" != "$PUID" ] || [ "$CURRENT_GID" != "$PGID" ]; then
             # Modify existing user
-            deluser hagicode
-            groupadd -g "$PGID" hagicode 2>/dev/null || true
-            useradd -u "$PUID" -g "$PGID" -s /bin/bash -m hagicode
-            chown -R hagicode:hagicode /home/hagicode /app
+            groupmod -o -g "$PGID" "$HAGICODE_GROUP"
+            usermod -o -u "$PUID" -g "$PGID" -d "$HAGICODE_HOME" "$HAGICODE_USER"
             echo "✓ Updated hagicode user to UID=$PUID, GID=$PGID"
         fi
     fi
 fi
+
+ensure_hagicode_runtime_paths
+configure_ssh_private_key_if_needed
 
 # ==================================================
 # CLI Version Overrides
@@ -61,9 +225,9 @@ install_cli_override_if_needed() {
     echo "✓ ${display_name} version override detected: ${override_env_name}=${override_version}"
     echo "  Installing ${package_name}@${override_version} ..."
 
-    gosu hagicode npm install -g "${package_name}@${override_version}"
-    gosu hagicode "/home/hagicode/.npm-global/bin/${command_name}" --version >/dev/null
-    gosu hagicode npm cache clean --force >/dev/null 2>&1 || true
+    run_as_hagicode npm install -g "${package_name}@${override_version}"
+    run_as_hagicode "${command_name}" --version >/dev/null
+    run_as_hagicode npm cache clean --force >/dev/null 2>&1 || true
 
     echo "  Installed ${display_name} ${override_version}"
 }
@@ -123,7 +287,7 @@ if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
     echo "  Source: ANTHROPIC_AUTH_TOKEN environment variable"
 
     # Create .claude directory for hagicode user
-    mkdir -p /home/hagicode/.claude
+    mkdir -p "$HAGICODE_CLAUDE_DIR"
 
     # Build settings.json dynamically based on available configuration
     SETTINGS_BASE=$(cat <<EOF
@@ -177,18 +341,18 @@ EOF
     # Close JSON
     echo "${SETTINGS_BASE}
   }
-}" > /home/hagicode/.claude/settings.json
+}" > "$HAGICODE_CLAUDE_DIR/settings.json"
 
     # Write .claude.json to skip onboarding
-    cat > /home/hagicode/.claude.json << EOF
+    cat > "$HAGICODE_CLAUDE_STATE_FILE" << EOF
 {
   "hasCompletedOnboarding": true
 }
 EOF
 
     # Ensure proper ownership
-    chown -R hagicode:hagicode /home/hagicode/.claude /home/hagicode/.claude.json
-    chmod 600 /home/hagicode/.claude/settings.json
+    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR" "$HAGICODE_CLAUDE_STATE_FILE"
+    chmod 600 "$HAGICODE_CLAUDE_DIR/settings.json"
 
     CLAUDE_CONFIGURED=true
     echo "✓ Claude Code configured with custom Anthropic API endpoint"
@@ -214,7 +378,7 @@ else
             echo "  Host config detected, attempting to use mounted configuration..."
 
             # Create target directory
-            mkdir -p /home/hagicode/.claude
+            mkdir -p "$HAGICODE_CLAUDE_DIR"
 
             CONFIG_FOUND=false
             CONFIG_SOURCE=""
@@ -222,31 +386,31 @@ else
             # Copy settings.json from mount
             if [ -f "$MOUNT_PATH/settings.json" ]; then
                 echo "  Found: settings.json file at $MOUNT_PATH/settings.json"
-                cp "$MOUNT_PATH/settings.json" /home/hagicode/.claude/settings.json
-                chown hagicode:hagicode /home/hagicode/.claude/settings.json
-                chmod 600 /home/hagicode/.claude/settings.json
+                cp "$MOUNT_PATH/settings.json" "$HAGICODE_CLAUDE_DIR/settings.json"
+                chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR/settings.json"
+                chmod 600 "$HAGICODE_CLAUDE_DIR/settings.json"
                 CONFIG_FOUND=true
                 CONFIG_SOURCE="$MOUNT_PATH/settings.json"
                 echo "    ✓ Copied settings.json"
             fi
 
             # Always create .claude.json with fixed content
-            cat > /home/hagicode/.claude.json << EOF
+            cat > "$HAGICODE_CLAUDE_STATE_FILE" << EOF
 {
   "hasCompletedOnboarding": true
 }
 EOF
-            chown hagicode:hagicode /home/hagicode/.claude.json
+            chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_STATE_FILE"
             echo "    ✓ Created .claude.json (onboarding skip)"
 
             if [ "$CONFIG_FOUND" = true ]; then
                 # Ensure entire .claude directory has correct ownership
-                chown -R hagicode:hagicode /home/hagicode/.claude
+                chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR"
                 CLAUDE_CONFIGURED=true
 
                 echo "✓ Claude Code configured with host configuration"
                 echo "  Source: $CONFIG_SOURCE"
-                echo "  Action: Copied to /home/hagicode/.claude/"
+                echo "  Action: Copied to ${HAGICODE_CLAUDE_DIR}/"
                 echo "  Permissions: Configured for hagicode user (600)"
             else
                 echo "⚠ Warning: Mount path exists but no valid config files found"
@@ -349,13 +513,13 @@ cd /app
 
 # Try different possible entry points
 if [ -f "/app/PCode.Web.dll" ]; then
-    exec gosu hagicode dotnet PCode.Web.dll
+    exec_as_hagicode dotnet PCode.Web.dll
 elif [ -f "/app/Hagicode.dll" ]; then
-    exec gosu hagicode dotnet Hagicode.dll
+    exec_as_hagicode dotnet Hagicode.dll
 elif [ -f "/app/lib/PCode.Web.dll" ]; then
-    exec gosu hagicode dotnet lib/PCode.Web.dll
+    exec_as_hagicode dotnet lib/PCode.Web.dll
 elif [ -f "/app/lib/Hagicode.dll" ]; then
-    exec gosu hagicode dotnet lib/Hagicode.dll
+    exec_as_hagicode dotnet lib/Hagicode.dll
 else
     echo "Error: Could not find application entry point"
     echo "Looked for: PCode.Web.dll, Hagicode.dll, lib/PCode.Web.dll, lib/Hagicode.dll"
