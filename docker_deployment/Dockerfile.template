@@ -16,18 +16,25 @@
 # ============================================================================
 # Base Stage (internal, not pushed as independent image)
 # ============================================================================
-FROM node:24 AS base
+FROM debian:bookworm-slim AS base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Metadata labels
-LABEL description="HagiCode Base - Node.js 24, .NET 10 runtime with CLI tools"
+LABEL description="HagiCode Base - Debian Bookworm slim, Node.js 24 via NVM, .NET 10 runtime with CLI tools"
 LABEL maintainer="HagiCode Contributors"
 LABEL purpose="Base stage for unified multi-stage build"
 
-# Install additional dependencies
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies needed by the app, non-root startup, and SSH/Git access.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
     curl \
     gosu \
     git \
+    openssh-client \
+    wget \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install .NET 10 ASP.NET Core Runtime using official Microsoft script
@@ -39,13 +46,35 @@ RUN wget -qO- https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
     --install-dir /usr/share/dotnet \
     --version latest
 
-# Add .NET to PATH
-ENV DOTNET_ROOT=/usr/share/dotnet
-ENV PATH="${DOTNET_ROOT}:${PATH}"
-ENV PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
+# Add .NET and Node.js environment configuration
+ENV DOTNET_ROOT=/usr/share/dotnet \
+    NVM_DIR=/usr/local/nvm \
+    NVM_SYMLINK_CURRENT=true \
+    NODE_VERSION=24 \
+    HOME=/home/hagicode \
+    NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
+    PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
     PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
     PINNED_OPENCODE_CLI_VERSION=1.2.25 \
     PINNED_CODEX_CLI_VERSION=0.112.0
+ENV PATH="/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
+
+# Install Node.js 24 through a shared, image-managed NVM layout and expose it on PATH
+RUN mkdir -p "$NVM_DIR" && \
+    export PROFILE=/dev/null && \
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && \
+    source "$NVM_DIR/nvm.sh" && \
+    nvm install "${NODE_VERSION}" && \
+    nvm alias default "${NODE_VERSION}" && \
+    nvm use default >/dev/null && \
+    NODE_BIN_DIR="$(dirname "$(nvm which default)")" && \
+    ln -sf "${NODE_BIN_DIR}/node" /usr/local/bin/node && \
+    ln -sf "${NODE_BIN_DIR}/npm" /usr/local/bin/npm && \
+    ln -sf "${NODE_BIN_DIR}/npx" /usr/local/bin/npx && \
+    ln -sf "${NODE_BIN_DIR}/corepack" /usr/local/bin/corepack && \
+    node --version && \
+    npm --version && \
+    npx --version
 
 # Create non-root user for running the application
 # Claude Code CLI cannot run as root user
@@ -53,7 +82,7 @@ ENV PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
 # -o allows groupadd/useradd to succeed even if GID/UID already exists
 RUN groupadd -o -g 1000 hagicode && \
     useradd -o -u 1000 -g 1000 -s /bin/bash -m hagicode && \
-    mkdir -p /home/hagicode/.claude && \
+    mkdir -p /home/hagicode/.claude /home/hagicode/.npm-global && \
     chown -R hagicode:hagicode /home/hagicode
 
 # Switch to hagicode user for npm installations
@@ -61,32 +90,31 @@ USER hagicode
 WORKDIR /home/hagicode
 
 # Configure npm to install global packages in user's home directory
-RUN mkdir -p /home/hagicode/.npm-global && \
-    npm config set prefix '/home/hagicode/.npm-global' && \
-    echo 'export PATH=/home/hagicode/.npm-global/bin:$PATH' >> /home/hagicode/.bashrc
+RUN npm config set prefix '/home/hagicode/.npm-global'
 
 # Install Claude Code CLI via npm as non-root user
 # This enables AI-assisted development features within container
-RUN npm install -g @anthropic-ai/claude-code@2.1.71 && \
-    /home/hagicode/.npm-global/bin/claude --version || echo "Claude Code CLI installed" && \
+RUN npm install -g "@anthropic-ai/claude-code@${PINNED_CLAUDE_CODE_CLI_VERSION}" && \
+    claude --version || echo "Claude Code CLI installed" && \
     npm cache clean --force
 
-# Install OpenSpec CLI tool for proposal and change management as non-root user
-# This enables spec-driven development workflows
-RUN npm install -g @fission-ai/openspec@1.2.0 && \
-    /home/hagicode/.npm-global/bin/openspec --version || echo "OpenSpec CLI installed" && \
+# Install OpenSpec CLI as the retained workflow tool in the image baseline
+# This stays separate from the primary agent CLI baseline below
+RUN npm install -g "@fission-ai/openspec@${PINNED_OPENSPEC_CLI_VERSION}" && \
+    openspec --version || echo "OpenSpec CLI installed" && \
     npm cache clean --force
 
-# Install OpenCode CLI for the shared HTTP runtime baseline
+# Install the retained primary agent CLI baseline
+# Provider CLIs outside claude/opencode/codex stay UI-managed at runtime
+# OpenCode serves the shared HTTP runtime baseline
 # The npm package is opencode-ai while the shipped command remains opencode
-RUN npm install -g opencode-ai@1.2.25 && \
-    /home/hagicode/.npm-global/bin/opencode --version && \
+RUN npm install -g "opencode-ai@${PINNED_OPENCODE_CLI_VERSION}" && \
+    opencode --version && \
     npm cache clean --force
 
-# Install Codex CLI for coding assistance in unified runtime image
-# This ensures codex command is available in container without extra setup
-RUN npm install -g @openai/codex@0.112.0 && \
-    /home/hagicode/.npm-global/bin/codex --version && \
+# Codex remains part of the baked primary agent CLI baseline
+RUN npm install -g "@openai/codex@${PINNED_CODEX_CLI_VERSION}" && \
+    codex --version && \
     npm cache clean --force
 
 # Switch back to root for final setup
@@ -98,10 +126,6 @@ RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
 
 # Clean up temporary files to reduce image size
 RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
-
-# Add npm global bin directory to PATH for all users
-# This makes claude/openspec/opencode/codex commands available system-wide
-ENV PATH="/home/hagicode/.npm-global/bin:${PATH}"
 
 # ============================================================================
 # Final Stage (pushed as hagicode:{version})
