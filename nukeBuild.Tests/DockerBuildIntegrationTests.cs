@@ -54,6 +54,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("PINNED_OPENSPEC_CLI_VERSION=1.2.0", dockerfile);
         Assert.Contains("PINNED_OPENCODE_CLI_VERSION=1.2.25", dockerfile);
         Assert.Contains("PINNED_CODEX_CLI_VERSION=0.112.0", dockerfile);
+        Assert.Contains("PINNED_CODE_SERVER_VERSION=4.115.0", dockerfile);
         Assert.DoesNotContain("PINNED_UIPRO_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_COPILOT_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_CODEBUDDY_CLI_VERSION", dockerfile);
@@ -72,6 +73,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("opencode --version", dockerfile);
         Assert.Contains("npm install -g \"@openai/codex@${PINNED_CODEX_CLI_VERSION}\"", dockerfile);
         Assert.Contains("codex --version", dockerfile);
+        Assert.Contains("npm install -g \"code-server@${PINNED_CODE_SERVER_VERSION}\"", dockerfile);
+        Assert.Contains("code-server --version", dockerfile);
         Assert.DoesNotContain("uipro-cli@", dockerfile);
         Assert.DoesNotContain("@github/copilot@", dockerfile);
         Assert.DoesNotContain("@tencent-ai/codebuddy-code@", dockerfile);
@@ -102,6 +105,11 @@ public class DockerBuildIntegrationTests
         Assert.Contains("OPENSPEC_CLI_VERSION", entrypoint);
         Assert.Contains("PINNED_OPENCODE_CLI_VERSION", entrypoint);
         Assert.Contains("CODEX_CLI_VERSION", entrypoint);
+        Assert.Contains("configure_code_server_runtime_if_needed()", entrypoint);
+        Assert.Contains("CODE_SERVER_PASSWORD (masked)", entrypoint);
+        Assert.Contains("CODE_SERVER_HASHED_PASSWORD (masked)", entrypoint);
+        Assert.Contains("VsCodeServer__CodeServerAuthMode=password requires CODE_SERVER_PASSWORD", entrypoint);
+        Assert.Contains("run_as_hagicode code-server --version >/dev/null", entrypoint);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN (masked)", entrypoint);
         Assert.Contains("OpenCode CLI using pinned image version", entrypoint);
         Assert.DoesNotContain("${OPENCODE_CLI_VERSION", entrypoint);
@@ -167,6 +175,11 @@ public class DockerBuildIntegrationTests
         Assert.Contains("default of `accept-new`", readme);
         Assert.Contains("skip SSH bootstrap entirely", readme);
         Assert.Contains("`GIT_SSH_COMMAND`", readme);
+        Assert.Contains("Bundled Code Server runtime", readme);
+        Assert.Contains("`VsCodeServer__*`", readme);
+        Assert.Contains("`CODE_SERVER_PASSWORD`", readme);
+        Assert.Contains("`127.0.0.1`", readme);
+        Assert.Contains("`hagicode_data:/app/data`", readme);
 
         Assert.Contains("`debian:bookworm-slim`", readmeCn);
         Assert.Contains("Node.js 24", readmeCn);
@@ -178,6 +191,11 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`SSH_STRICT_HOST_KEY_CHECKING`", readmeCn);
         Assert.Contains("默认的 `accept-new`", readmeCn);
         Assert.Contains("`GIT_SSH_COMMAND`", readmeCn);
+        Assert.Contains("内置 Code Server 运行时", readmeCn);
+        Assert.Contains("`VsCodeServer__*`", readmeCn);
+        Assert.Contains("`CODE_SERVER_PASSWORD`", readmeCn);
+        Assert.Contains("`127.0.0.1`", readmeCn);
+        Assert.Contains("`hagicode_data:/app/data`", readmeCn);
 
         Assert.Contains("CODEBUDDY_API_KEY", environmentVariables);
         Assert.Contains("CODEBUDDY_INTERNET_ENVIRONMENT", environmentVariables);
@@ -191,6 +209,14 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`", environmentVariables);
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
         Assert.Contains("Retained workflow tool: `openspec`", environmentVariables);
+        Assert.Contains("Code Server Deployment Contract", environmentVariables);
+        Assert.Contains("VsCodeServer__CodeServerAuthMode", environmentVariables);
+        Assert.Contains("CODE_SERVER_PASSWORD", environmentVariables);
+        Assert.Contains("CODE_SERVER_HASHED_PASSWORD", environmentVariables);
+        Assert.Contains("PASSWORD", environmentVariables);
+        Assert.Contains("HASHED_PASSWORD", environmentVariables);
+        Assert.Contains("code-server --version", environmentVariables);
+        Assert.Contains("/app/data/code-server", environmentVariables);
         Assert.Contains("SSH_PRIVATE_KEY_PATH", environmentVariables);
         Assert.Contains("SSH_KNOWN_HOSTS_PATH", environmentVariables);
         Assert.Contains("SSH_STRICT_HOST_KEY_CHECKING", environmentVariables);
