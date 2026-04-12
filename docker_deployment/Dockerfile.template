@@ -6,6 +6,7 @@
 # - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
 # - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
 # - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
+# - code-server: 4.115.0 (code-server@4.115.0)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -50,13 +51,14 @@ RUN wget -qO- https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
 ENV DOTNET_ROOT=/usr/share/dotnet \
     NVM_DIR=/usr/local/nvm \
     NVM_SYMLINK_CURRENT=true \
-    NODE_VERSION=24 \
+    NODE_VERSION=22 \
     HOME=/home/hagicode \
     NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
     PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
     PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
     PINNED_OPENCODE_CLI_VERSION=1.2.25 \
-    PINNED_CODEX_CLI_VERSION=0.112.0
+    PINNED_CODEX_CLI_VERSION=0.112.0 \
+    PINNED_CODE_SERVER_VERSION=4.115.0
 ENV PATH="/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
 # Install Node.js 24 through a shared, image-managed NVM layout and expose it on PATH
@@ -115,6 +117,11 @@ RUN npm install -g "opencode-ai@${PINNED_OPENCODE_CLI_VERSION}" && \
 # Codex remains part of the baked primary agent CLI baseline
 RUN npm install -g "@openai/codex@${PINNED_CODEX_CLI_VERSION}" && \
     codex --version && \
+    npm cache clean --force
+
+# code-server is bundled for the managed browser IDE runtime contract
+RUN npm install -g "code-server@${PINNED_CODE_SERVER_VERSION}" && \
+    code-server --version && \
     npm cache clean --force
 
 # Switch back to root for final setup

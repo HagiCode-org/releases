@@ -17,6 +17,10 @@ HAGICODE_SSH_CONFIG_FILE="${HAGICODE_SSH_DIR}/config"
 HAGICODE_SSH_MANAGED_BEGIN="# >>> HAGICODE SSH BOOTSTRAP >>>"
 HAGICODE_SSH_MANAGED_END="# <<< HAGICODE SSH BOOTSTRAP <<<"
 SSH_STRICT_HOST_KEY_CHECKING_DEFAULT="accept-new"
+HAGICODE_CODE_SERVER_CONFIG_DIR="${HAGICODE_HOME}/.config/code-server"
+HAGICODE_CODE_SERVER_CACHE_DIR="${HAGICODE_HOME}/.cache/code-server"
+HAGICODE_CODE_SERVER_SHARE_DIR="${HAGICODE_HOME}/.local/share/code-server"
+HAGICODE_CODE_SERVER_DATA_DIR="/app/data/code-server"
 
 export HOME="$HAGICODE_HOME"
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HAGICODE_NPM_PREFIX}"
@@ -43,7 +47,14 @@ exec_as_hagicode() {
 }
 
 ensure_hagicode_runtime_paths() {
-    mkdir -p "$HAGICODE_CLAUDE_DIR" "$HAGICODE_NPM_PREFIX" /app
+    mkdir -p \
+        "$HAGICODE_CLAUDE_DIR" \
+        "$HAGICODE_NPM_PREFIX" \
+        "$HAGICODE_CODE_SERVER_CONFIG_DIR" \
+        "$HAGICODE_CODE_SERVER_CACHE_DIR" \
+        "$HAGICODE_CODE_SERVER_SHARE_DIR" \
+        "$HAGICODE_CODE_SERVER_DATA_DIR" \
+        /app
     chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_HOME" /app
 }
 
@@ -167,6 +178,41 @@ EOF
     echo "  Git/SSH wiring: GIT_SSH_COMMAND uses ${HAGICODE_SSH_CONFIG_FILE}"
 }
 
+configure_code_server_runtime_if_needed() {
+    local auth_mode="${VsCodeServer__CodeServerAuthMode:-none}"
+    local resolved_password="${PASSWORD:-}"
+    local resolved_hashed_password="${HASHED_PASSWORD:-}"
+
+    if ! command -v code-server >/dev/null 2>&1; then
+        fail_startup "code-server is not available on PATH; rebuild the image with the pinned binary installed"
+    fi
+
+    run_as_hagicode code-server --version >/dev/null
+
+    if [ -n "${CODE_SERVER_PASSWORD:-}" ]; then
+        export PASSWORD="${CODE_SERVER_PASSWORD}"
+        resolved_password="${CODE_SERVER_PASSWORD}"
+        echo "✓ Code Server password source: CODE_SERVER_PASSWORD (masked)"
+    elif [ -n "$resolved_password" ]; then
+        echo "✓ Code Server password source: PASSWORD (masked)"
+    fi
+
+    if [ -n "${CODE_SERVER_HASHED_PASSWORD:-}" ]; then
+        export HASHED_PASSWORD="${CODE_SERVER_HASHED_PASSWORD}"
+        resolved_hashed_password="${CODE_SERVER_HASHED_PASSWORD}"
+        echo "✓ Code Server hashed password source: CODE_SERVER_HASHED_PASSWORD (masked)"
+    elif [ -n "$resolved_hashed_password" ]; then
+        echo "✓ Code Server hashed password source: HASHED_PASSWORD (masked)"
+    fi
+
+    if [ "$auth_mode" = "password" ] && [ -z "$resolved_password" ] && [ -z "$resolved_hashed_password" ]; then
+        fail_startup "VsCodeServer__CodeServerAuthMode=password requires CODE_SERVER_PASSWORD, CODE_SERVER_HASHED_PASSWORD, PASSWORD, or HASHED_PASSWORD"
+    fi
+
+    echo "✓ Code Server runtime bootstrap prepared at ${HAGICODE_CODE_SERVER_DATA_DIR}"
+    echo "  Auth mode: ${auth_mode}"
+}
+
 # Configure user UID/GID to match host user if specified
 # This allows proper file permissions for mounted volumes
 if [ -n "$PUID" ] && [ -n "$PGID" ]; then
@@ -194,6 +240,7 @@ fi
 
 ensure_hagicode_runtime_paths
 configure_ssh_private_key_if_needed
+configure_code_server_runtime_if_needed
 
 # ==================================================
 # CLI Version Overrides
