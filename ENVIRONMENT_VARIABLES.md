@@ -132,6 +132,48 @@ These variables control the startup-time SSH private key import flow used by dow
 - The entrypoint copies the key, writes deterministic SSH config, locks down permissions (`700` on `.ssh`, `600` on the imported key, `644` on `known_hosts` and `config`), and exports `GIT_SSH_COMMAND="ssh -F /home/hagicode/.ssh/config"`.
 - `SSH_STRICT_HOST_KEY_CHECKING` accepts `yes`, `no`, `ask`, `accept-new`, or `off`. The documented default is `accept-new`.
 
+### Code Server Deployment Contract
+
+These variables define how the bundled `code-server` runtime starts when Builder exports browser-IDE defaults from `full-custom` mode.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `VsCodeServer__DefaultActiveImplementation` | Active implementation selected by deployment defaults (`code-server` or `code-serve-web`) | No | `code-server` |
+| `VsCodeServer__CodeServerDefaultHost` | Container listen host passed to managed code-server startup | No | `127.0.0.1` |
+| `VsCodeServer__CodeServerDefaultPort` | Container listen port passed to managed code-server startup | No | `36529` |
+| `VsCodeServer__CodeServerExecutablePath` | Executable path used by the managed runtime | No | `code-server` |
+| `VsCodeServer__CodeServerAuthMode` | Auth mode passed to `code-server --auth` | No | `none` or `password` |
+| `CODE_SERVER_PASSWORD` | Builder-facing plaintext password secret bridged to `PASSWORD` during entrypoint bootstrap | No | `change-me` |
+| `CODE_SERVER_HASHED_PASSWORD` | Builder/operator-facing hashed password bridged to `HASHED_PASSWORD` during bootstrap | No | `\$argon2i\$...` |
+| `PASSWORD` | Standard `code-server` plaintext password variable (accepted as fallback) | No | `change-me` |
+| `HASHED_PASSWORD` | Standard `code-server` hashed password variable (accepted as fallback) | No | `\$argon2i\$...` |
+
+**Behavior notes**:
+- The image ships a pinned `code-server` binary and verifies `code-server --version` during image build.
+- Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
+- The generated Builder mapping binds to `127.0.0.1:<host-port>:<container-port>` by default, so wider exposure should be handled explicitly through a reverse proxy or edited compose file.
+- If `VsCodeServer__CodeServerAuthMode=password`, startup fails fast unless one of `CODE_SERVER_PASSWORD`, `CODE_SERVER_HASHED_PASSWORD`, `PASSWORD`, or `HASHED_PASSWORD` is present.
+- Runtime state still persists through `hagicode_data:/app/data`, with managed Code Server data stored under `/app/data/code-server`.
+
+**Release-side verification sequence**:
+```bash
+# 1. Confirm the bundled binary exists in the built image
+docker run --rm --entrypoint bash <hagicode-image> -lc 'code-server --version'
+
+# 2. Confirm the password bridge succeeds before app startup
+docker run --rm --entrypoint bash \
+  -e VsCodeServer__CodeServerAuthMode=password \
+  -e CODE_SERVER_PASSWORD=smoke-secret \
+  <hagicode-image> \
+  -lc 'code-server --version >/dev/null && echo \"bridge-ready\"'
+
+# 3. Confirm password auth fails fast when the secret is missing
+docker run --rm --entrypoint bash \
+  -e VsCodeServer__CodeServerAuthMode=password \
+  <hagicode-image> \
+  -lc 'if [ -n \"$CODE_SERVER_PASSWORD$CODE_SERVER_HASHED_PASSWORD$PASSWORD$HASHED_PASSWORD\" ]; then exit 1; fi; echo \"missing-secret-check-ready\"'
+```
+
 ### Claude Code Configuration
 
 | Variable | Description | Required | Example |

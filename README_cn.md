@@ -50,6 +50,15 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 像 `copilot`、`codebuddy`、`qodercli` 这样的 provider CLI 现在都走 HagiCode UI 管理的安装路径，不再作为容器默认内置能力。`uipro` 也不再随镜像发布，因为对应能力已经由技能管理机制接管。
 
+## 内置 Code Server 运行时
+
+统一镜像现在会把固定版本的 `code-server` 一并内置到运行时基线里，因此 Builder 可以直接导出浏览器 IDE 默认值，而不需要部署者在容器启动后再手工安装额外软件。
+
+- 当 Builder 处于 `full-custom` 模式并保持启用 code-server 时，会直接导出 `VsCodeServer__*` 默认值
+- 专用宿主机端口发布仍然是显式开启能力，生成的首层映射默认固定绑定到 `127.0.0.1`
+- 如果使用密码认证，则必须提供 `CODE_SERVER_PASSWORD` 或 `CODE_SERVER_HASHED_PASSWORD`；入口脚本会在应用启动前桥接到标准的 `PASSWORD` / `HASHED_PASSWORD`
+- 运行时状态仍然通过共享的 `hagicode_data:/app/data` 数据卷持久化，不需要额外新增第二个必需的 Code Server 数据卷
+
 ## 启动阶段 SSH 引导
 
 发布镜像现在安装了 `openssh-client`，并且可以在明确需要 SSH 访问时于启动阶段导入挂载的私钥。

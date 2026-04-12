@@ -65,6 +65,15 @@ The unified runtime image bakes only the primary agent CLI baseline:
 
 Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because skill management replaces its previous shipped-runtime workflow.
 
+## Bundled Code Server runtime
+
+The unified image now bakes a pinned `code-server` binary into the same runtime baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.
+
+- Builder `full-custom` mode exports `VsCodeServer__*` defaults directly into compose when you keep code-server enabled
+- Dedicated host publishing remains opt-in, and the generated mapping binds to `127.0.0.1` by default for the first exposure step
+- Password auth requires `CODE_SERVER_PASSWORD` or `CODE_SERVER_HASHED_PASSWORD`; the entrypoint bridges those variables to the standard `PASSWORD` / `HASHED_PASSWORD` names before app startup
+- Runtime state still persists through the shared `hagicode_data:/app/data` volume, so there is no second mandatory Code Server data volume
+
 ## Startup SSH bootstrap
 
 The release image now installs `openssh-client` and can import a mounted private key during startup when SSH access is explicitly required.
