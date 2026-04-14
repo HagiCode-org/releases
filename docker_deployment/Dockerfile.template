@@ -22,7 +22,7 @@ FROM debian:bookworm-slim AS base
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Metadata labels
-LABEL description="HagiCode Base - Debian Bookworm slim, Node.js 24 via NVM, .NET 10 runtime with CLI tools"
+LABEL description="HagiCode Base - Debian Bookworm slim, Node.js 22 via NVM, .NET 10 runtime with CLI tools"
 LABEL maintainer="HagiCode Contributors"
 LABEL purpose="Base stage for unified multi-stage build"
 
@@ -61,10 +61,12 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     PINNED_CODE_SERVER_VERSION=4.115.0
 ENV PATH="/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
-# Install Node.js 24 through a shared, image-managed NVM layout and expose it on PATH
+# Install Node.js 22 through a shared, image-managed NVM layout and expose it on PATH
+# Clear the npm prefix only for the bootstrap layer so nvm install can run cleanly.
 RUN mkdir -p "$NVM_DIR" && \
     export PROFILE=/dev/null && \
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && \
+    unset NPM_CONFIG_PREFIX && \
     source "$NVM_DIR/nvm.sh" && \
     nvm install "${NODE_VERSION}" && \
     nvm alias default "${NODE_VERSION}" && \
