@@ -110,6 +110,7 @@ These variables are used inside Docker containers to configure AI agents:
 - Clean runtime base: `debian:bookworm-slim`
 - Shared Node.js toolchain: Node 22 via NVM under `/usr/local/nvm`
 - Build-time Node bootstrap clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user
+- code-server is installed from the pinned standalone release archive and exposed on the default system PATH
 - Supported non-root runtime user: `hagicode` only
 - Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`
 - Retained workflow tool: `openspec`
@@ -150,7 +151,7 @@ These variables define how the bundled `code-server` runtime starts when Builder
 | `HASHED_PASSWORD` | Standard `code-server` hashed password variable (accepted as fallback) | No | `\$argon2i\$...` |
 
 **Behavior notes**:
-- The image ships a pinned `code-server` binary and verifies `code-server --version` during image build.
+- The image ships a pinned `code-server` binary from the standalone release archive and verifies `code-server --version` during image build.
 - Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
 - The generated Builder mapping binds to `127.0.0.1:<host-port>:<container-port>` by default, so wider exposure should be handled explicitly through a reverse proxy or edited compose file.
 - If `VsCodeServer__CodeServerAuthMode=password`, startup fails fast unless one of `CODE_SERVER_PASSWORD`, `CODE_SERVER_HASHED_PASSWORD`, `PASSWORD`, or `HASHED_PASSWORD` is present.

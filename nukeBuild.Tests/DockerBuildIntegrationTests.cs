@@ -74,8 +74,12 @@ public class DockerBuildIntegrationTests
         Assert.Contains("opencode --version", dockerfile);
         Assert.Contains("npm install -g \"@openai/codex@${PINNED_CODEX_CLI_VERSION}\"", dockerfile);
         Assert.Contains("codex --version", dockerfile);
-        Assert.Contains("npm install -g \"code-server@${PINNED_CODE_SERVER_VERSION}\"", dockerfile);
+        Assert.Contains("code-server: 4.115.0 (standalone release archive)", dockerfile);
+        Assert.Contains("Unsupported architecture for code-server", dockerfile);
+        Assert.Contains("https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz", dockerfile);
+        Assert.Contains("ln -sf \"${CODE_SERVER_INSTALL_DIR}/bin/code-server\" /usr/local/bin/code-server", dockerfile);
         Assert.Contains("code-server --version", dockerfile);
+        Assert.DoesNotContain("npm install -g \"code-server@${PINNED_CODE_SERVER_VERSION}\"", dockerfile);
         Assert.DoesNotContain("uipro-cli@", dockerfile);
         Assert.DoesNotContain("@github/copilot@", dockerfile);
         Assert.DoesNotContain("@tencent-ai/codebuddy-code@", dockerfile);
@@ -179,6 +183,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Node.js 22 is installed through an image-managed NVM layout", readme);
         Assert.DoesNotContain("Node.js 24", readme);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", readme);
+        Assert.Contains("`code-server` is installed from the pinned standalone release archive", readme);
         Assert.Contains("Only `hagicode` is supported as the non-root runtime user", readme);
         Assert.Contains("`claude`", readme);
         Assert.Contains("`opencode`", readme);
@@ -203,6 +208,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Node.js 22", readmeCn);
         Assert.DoesNotContain("Node.js 24", readmeCn);
         Assert.Contains("会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`", readmeCn);
+        Assert.Contains("`code-server` 会通过固定版本的 standalone 发布包安装", readmeCn);
         Assert.Contains("唯一受支持的非 root 运行用户是 `hagicode`", readmeCn);
         Assert.Contains("主要 agent CLI 基线", readmeCn);
         Assert.Contains("`openspec` 仍作为镜像保留的工作流工具存在", readmeCn);
@@ -227,6 +233,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Supported non-root runtime user: `hagicode` only", environmentVariables);
         Assert.Contains("the image does not rely on the upstream `node` user or `/home/node`", environmentVariables);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", environmentVariables);
+        Assert.Contains("code-server is installed from the pinned standalone release archive", environmentVariables);
         Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`", environmentVariables);
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
         Assert.Contains("Retained workflow tool: `openspec`", environmentVariables);
@@ -256,6 +263,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Node.js 22 is installed through a shared NVM layout", agents);
         Assert.DoesNotContain("Node.js 24", agents);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", agents);
+        Assert.Contains("code-server is installed from the pinned standalone release archive", agents);
         Assert.Contains("`hagicode` is the only supported non-root runtime user", agents);
         Assert.Contains("`qodercli` now follows the UI-managed install path", agents);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN", agents);

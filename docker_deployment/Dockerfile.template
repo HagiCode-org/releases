@@ -6,7 +6,7 @@
 # - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
 # - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
 # - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
-# - code-server: 4.115.0 (code-server@4.115.0)
+# - code-server: 4.115.0 (standalone release archive)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -121,14 +121,26 @@ RUN npm install -g "@openai/codex@${PINNED_CODEX_CLI_VERSION}" && \
     codex --version && \
     npm cache clean --force
 
-# code-server is bundled for the managed browser IDE runtime contract
-RUN npm install -g "code-server@${PINNED_CODE_SERVER_VERSION}" && \
-    code-server --version && \
-    npm cache clean --force
-
 # Switch back to root for final setup
 USER root
 WORKDIR /app
+
+# code-server is bundled from the pinned standalone release so npm prefix settings
+# do not affect the browser IDE runtime contract.
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+        amd64) CODE_SERVER_ARCH="amd64" ;; \
+        arm64) CODE_SERVER_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture for code-server: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    CODE_SERVER_INSTALL_DIR="/usr/local/lib/code-server"; \
+    wget -qO /tmp/code-server.tar.gz "https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz"; \
+    rm -rf "${CODE_SERVER_INSTALL_DIR}"; \
+    mkdir -p "${CODE_SERVER_INSTALL_DIR}"; \
+    tar -xzf /tmp/code-server.tar.gz -C "${CODE_SERVER_INSTALL_DIR}" --strip-components=1; \
+    ln -sf "${CODE_SERVER_INSTALL_DIR}/bin/code-server" /usr/local/bin/code-server; \
+    code-server --version; \
+    rm -f /tmp/code-server.tar.gz
 
 # Clean up npm global cache to reduce image size
 RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
