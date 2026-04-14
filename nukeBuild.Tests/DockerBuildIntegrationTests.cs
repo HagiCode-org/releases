@@ -45,7 +45,8 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("FROM node:24 AS base", dockerfile);
         Assert.Contains("NVM_DIR=/usr/local/nvm", dockerfile);
         Assert.Contains("NVM_SYMLINK_CURRENT=true", dockerfile);
-        Assert.Contains("NODE_VERSION=24", dockerfile);
+        Assert.Contains("NODE_VERSION=22", dockerfile);
+        Assert.DoesNotContain("NODE_VERSION=24", dockerfile);
         Assert.Contains("nvm install \"${NODE_VERSION}\"", dockerfile);
         Assert.Contains("ln -sf \"${NODE_BIN_DIR}/node\" /usr/local/bin/node", dockerfile);
         Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
@@ -83,6 +84,21 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("copilot --version", dockerfile);
         Assert.DoesNotContain("codebuddy --version", dockerfile);
         Assert.DoesNotContain("qodercli --version", dockerfile);
+    }
+
+    [Fact]
+    public void Dockerfile_ShouldSanitize_NvmBootstrapEnvironment()
+    {
+        var dockerfile = ReadRepoFile("docker_deployment/Dockerfile.template");
+
+        var unsetPrefixIndex = dockerfile.IndexOf("unset NPM_CONFIG_PREFIX &&");
+        var nvmInstallIndex = dockerfile.IndexOf("nvm install \"${NODE_VERSION}\"");
+
+        Assert.True(unsetPrefixIndex >= 0, "Docker template should clear NPM_CONFIG_PREFIX before invoking NVM.");
+        Assert.True(nvmInstallIndex >= 0, "Docker template should install Node.js through nvm.");
+        Assert.True(unsetPrefixIndex < nvmInstallIndex, "Docker template should clear NPM_CONFIG_PREFIX before running nvm install.");
+        Assert.Contains("npm config set prefix '/home/hagicode/.npm-global'", dockerfile);
+        Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
     }
 
     [Fact]
@@ -160,7 +176,9 @@ public class DockerBuildIntegrationTests
         var agents = ReadRepoFile("AGENTS.md");
 
         Assert.Contains("clean `debian:bookworm-slim` base", readme);
-        Assert.Contains("Node.js 24 is installed through an image-managed NVM layout", readme);
+        Assert.Contains("Node.js 22 is installed through an image-managed NVM layout", readme);
+        Assert.DoesNotContain("Node.js 24", readme);
+        Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", readme);
         Assert.Contains("Only `hagicode` is supported as the non-root runtime user", readme);
         Assert.Contains("`claude`", readme);
         Assert.Contains("`opencode`", readme);
@@ -182,7 +200,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`hagicode_data:/app/data`", readme);
 
         Assert.Contains("`debian:bookworm-slim`", readmeCn);
-        Assert.Contains("Node.js 24", readmeCn);
+        Assert.Contains("Node.js 22", readmeCn);
+        Assert.DoesNotContain("Node.js 24", readmeCn);
+        Assert.Contains("会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`", readmeCn);
         Assert.Contains("唯一受支持的非 root 运行用户是 `hagicode`", readmeCn);
         Assert.Contains("主要 agent CLI 基线", readmeCn);
         Assert.Contains("`openspec` 仍作为镜像保留的工作流工具存在", readmeCn);
@@ -206,6 +226,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`uipro` is no longer shipped because skill management replaces its runtime role", environmentVariables);
         Assert.Contains("Supported non-root runtime user: `hagicode` only", environmentVariables);
         Assert.Contains("the image does not rely on the upstream `node` user or `/home/node`", environmentVariables);
+        Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", environmentVariables);
         Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`", environmentVariables);
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
         Assert.Contains("Retained workflow tool: `openspec`", environmentVariables);
@@ -232,7 +253,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Workflow tool: `openspec`", agents);
         Assert.Contains("Runtime SSH client: `openssh-client`", agents);
         Assert.Contains("Base stages start from `debian:bookworm-slim`", agents);
-        Assert.Contains("Node.js 24 is installed through a shared NVM layout", agents);
+        Assert.Contains("Node.js 22 is installed through a shared NVM layout", agents);
+        Assert.DoesNotContain("Node.js 24", agents);
+        Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", agents);
         Assert.Contains("`hagicode` is the only supported non-root runtime user", agents);
         Assert.Contains("`qodercli` now follows the UI-managed install path", agents);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN", agents);
