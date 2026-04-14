@@ -51,7 +51,8 @@ Manual reruns stay available, but they are explicit:
 
 ## Container CLI contract
 
-The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 24 is installed through an image-managed NVM layout under `/usr/local/nvm`, while baked CLIs remain installed under `/home/hagicode/.npm-global`.
+The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 22 is installed through an image-managed NVM layout under `/usr/local/nvm`, while baked CLIs remain installed under `/home/hagicode/.npm-global`.
+During image build, the Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`; after the image switches to `hagicode`, `npm config set prefix '/home/hagicode/.npm-global'` restores the runtime/global-install contract.
 
 Only `hagicode` is supported as the non-root runtime user. When `PUID` and `PGID` are provided, container startup remaps that single user and reconciles ownership for `/home/hagicode`, its `.claude` state, and `/app`.
 

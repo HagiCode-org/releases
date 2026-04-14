@@ -125,7 +125,8 @@ The Docker base image pre-installs the retained workflow + runtime baseline:
 
 Container foundation notes:
 - Base stages start from `debian:bookworm-slim`, not the official `node` image variants.
-- Node.js 24 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
+- Node.js 22 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
+- The Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user.
 - `/home/hagicode/.npm-global` remains the CLI prefix, and `hagicode` is the only supported non-root runtime user.
 
 Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because skill management replaces its previous runtime role.

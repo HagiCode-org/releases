@@ -36,7 +36,8 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 ## 容器运行时契约
 
-统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 24 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而内置 CLI 仍安装在 `/home/hagicode/.npm-global`。
+统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 22 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而内置 CLI 仍安装在 `/home/hagicode/.npm-global`。
+镜像构建时，Node 引导层会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`；切换到 `hagicode` 用户后，再通过 `npm config set prefix '/home/hagicode/.npm-global'` 恢复运行时和全局安装约定。
 
 容器中唯一受支持的非 root 运行用户是 `hagicode`。当提供 `PUID` 和 `PGID` 时，启动脚本只会重映射这一个用户，并修正 `/home/hagicode`、其 `.claude` 状态目录以及 `/app` 的所有权。
 
