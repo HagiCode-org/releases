@@ -34,6 +34,14 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 
 Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release.
 
+## Steam Linux desktop artifact verification
+
+When a Linux desktop package bundles the optional portable payload under `resources/extra/portable-fixed/current`, keep the Steam startup contract aligned with the desktop bootstrap fix:
+
+- Steam launch of the packaged artifact must log that Steam Linux compatibility mode was enabled before the first window is created
+- The same packaged artifact launched directly from the CLI must log that compatibility mode was skipped and direct CLI launch keeps the default graphics path
+- If later startup diagnostics are captured, the copied startup-failure log should still begin with the `[StartupCompatibility]` context line so release triage can separate graphics-mode handling from unrelated failures
+
 ## Trigger boundaries
 
 Automatic publishing now has a single entry point:
@@ -72,6 +80,7 @@ Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the Hagi
 The unified image now bakes a pinned `code-server` binary into the same runtime baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.
 
 - Builder `full-custom` mode exports `VsCodeServer__*` defaults directly into compose when you keep code-server enabled
+- Builder now exposes a shared EULA toggle that exports `ACCEPT_EULA=Y` only when operators explicitly opt in, and the entrypoint refuses startup without an accepted value
 - Dedicated host publishing remains opt-in, and the generated mapping binds to `127.0.0.1` by default for the first exposure step
 - Password auth requires `CODE_SERVER_PASSWORD` or `CODE_SERVER_HASHED_PASSWORD`; the entrypoint bridges those variables to the standard `PASSWORD` / `HASHED_PASSWORD` names before app startup
 - Runtime state still persists through the shared `hagicode_data:/app/data` volume, so there is no second mandatory Code Server data volume

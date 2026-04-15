@@ -213,6 +213,23 @@ configure_code_server_runtime_if_needed() {
     echo "  Auth mode: ${auth_mode}"
 }
 
+validate_accept_eula() {
+    local raw_value="${ACCEPT_EULA:-}"
+    local normalized_value
+
+    normalized_value="$(printf '%s' "$raw_value" | tr '[:upper:]' '[:lower:]')"
+
+    case "$normalized_value" in
+        y|yes|true|1)
+            echo "✓ Container EULA acceptance detected: ACCEPT_EULA=${raw_value}"
+            ;;
+        *)
+            fail_startup "ACCEPT_EULA must be set to an accepted opt-in value (Y, YES, TRUE, or 1) before startup"
+            ;;
+    esac
+}
+
+main() {
 # Configure user UID/GID to match host user if specified
 # This allows proper file permissions for mounted volumes
 if [ -n "$PUID" ] && [ -n "$PGID" ]; then
@@ -239,6 +256,7 @@ if [ -n "$PUID" ] && [ -n "$PGID" ]; then
 fi
 
 ensure_hagicode_runtime_paths
+validate_accept_eula
 configure_ssh_private_key_if_needed
 configure_code_server_runtime_if_needed
 
@@ -571,4 +589,9 @@ else
     echo "Error: Could not find application entry point"
     echo "Looked for: PCode.Web.dll, Hagicode.dll, lib/PCode.Web.dll, lib/Hagicode.dll"
     exit 1
+fi
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
 fi

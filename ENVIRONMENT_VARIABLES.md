@@ -136,7 +136,7 @@ These variables control the startup-time SSH private key import flow used by dow
 
 ### Code Server Deployment Contract
 
-These variables define how the bundled `code-server` runtime starts when Builder exports browser-IDE defaults from `full-custom` mode.
+These variables define how the bundled `code-server` runtime starts when Builder exports browser-IDE defaults from `full-custom` mode and when the shared Builder EULA toggle exports container-startup consent.
 
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
@@ -145,6 +145,7 @@ These variables define how the bundled `code-server` runtime starts when Builder
 | `VsCodeServer__CodeServerDefaultPort` | Container listen port passed to managed code-server startup | No | `36529` |
 | `VsCodeServer__CodeServerExecutablePath` | Executable path used by the managed runtime | No | `code-server` |
 | `VsCodeServer__CodeServerAuthMode` | Auth mode passed to `code-server --auth` | No | `none` or `password` |
+| `ACCEPT_EULA` | Explicit container EULA opt-in required by the entrypoint before startup; Builder exports `Y` when the shared toggle is enabled | Yes for successful startup | `Y` |
 | `CODE_SERVER_PASSWORD` | Builder-facing plaintext password secret bridged to `PASSWORD` during entrypoint bootstrap | No | `change-me` |
 | `CODE_SERVER_HASHED_PASSWORD` | Builder/operator-facing hashed password bridged to `HASHED_PASSWORD` during bootstrap | No | `\$argon2i\$...` |
 | `PASSWORD` | Standard `code-server` plaintext password variable (accepted as fallback) | No | `change-me` |
@@ -152,6 +153,8 @@ These variables define how the bundled `code-server` runtime starts when Builder
 
 **Behavior notes**:
 - The image ships a pinned `code-server` binary from the standalone release archive and verifies `code-server --version` during image build.
+- Enabling the shared Builder EULA toggle exports `ACCEPT_EULA=Y`; leaving the toggle disabled omits `ACCEPT_EULA` instead of exporting a false-like value.
+- Container startup fails fast unless `ACCEPT_EULA` resolves to an accepted opt-in value (`Y`, `YES`, `TRUE`, or `1`, case-insensitive).
 - Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
 - The generated Builder mapping binds to `127.0.0.1:<host-port>:<container-port>` by default, so wider exposure should be handled explicitly through a reverse proxy or edited compose file.
 - If `VsCodeServer__CodeServerAuthMode=password`, startup fails fast unless one of `CODE_SERVER_PASSWORD`, `CODE_SERVER_HASHED_PASSWORD`, `PASSWORD`, or `HASHED_PASSWORD` is present.
@@ -162,15 +165,28 @@ These variables define how the bundled `code-server` runtime starts when Builder
 # 1. Confirm the bundled binary exists in the built image
 docker run --rm --entrypoint bash <hagicode-image> -lc 'code-server --version'
 
-# 2. Confirm the password bridge succeeds before app startup
+# 2. Confirm the EULA gate accepts the Builder-style opt-in
 docker run --rm --entrypoint bash \
+  -e ACCEPT_EULA=Y \
+  <hagicode-image> \
+  -lc 'if [ "$ACCEPT_EULA" = "Y" ]; then echo \"eula-ready\"; else exit 1; fi'
+
+# 3. Confirm the EULA gate fails fast when the opt-in is missing
+docker run --rm --entrypoint bash \
+  <hagicode-image> \
+  -lc 'if [ -z "${ACCEPT_EULA:-}" ]; then echo \"missing-eula-check-ready\"; else exit 1; fi'
+
+# 4. Confirm the password bridge succeeds before app startup
+docker run --rm --entrypoint bash \
+  -e ACCEPT_EULA=Y \
   -e VsCodeServer__CodeServerAuthMode=password \
   -e CODE_SERVER_PASSWORD=smoke-secret \
   <hagicode-image> \
   -lc 'code-server --version >/dev/null && echo \"bridge-ready\"'
 
-# 3. Confirm password auth fails fast when the secret is missing
+# 5. Confirm password auth fails fast when the secret is missing
 docker run --rm --entrypoint bash \
+  -e ACCEPT_EULA=Y \
   -e VsCodeServer__CodeServerAuthMode=password \
   <hagicode-image> \
   -lc 'if [ -n \"$CODE_SERVER_PASSWORD$CODE_SERVER_HASHED_PASSWORD$PASSWORD$HASHED_PASSWORD\" ]; then exit 1; fi; echo \"missing-secret-check-ready\"'

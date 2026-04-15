@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
 using Xunit;
 
 namespace NukeBuild.Tests;
@@ -34,6 +35,47 @@ public class DockerBuildIntegrationTests
     {
         var fullPath = Path.Combine(RepoRoot, relativePath);
         return File.ReadAllText(fullPath);
+    }
+
+    private static (int ExitCode, string StdOut, string StdErr) RunBashScript(
+        string scriptContent,
+        params (string Key, string? Value)[] environment)
+    {
+        var scriptPath = Path.GetTempFileName();
+        File.WriteAllText(scriptPath, scriptContent);
+
+        try
+        {
+            var startInfo = new ProcessStartInfo("bash", scriptPath)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+
+            foreach (var (key, value) in environment)
+            {
+                if (value is null)
+                {
+                    startInfo.Environment.Remove(key);
+                }
+                else
+                {
+                    startInfo.Environment[key] = value;
+                }
+            }
+
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start bash process.");
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            return (process.ExitCode, stdout, stderr);
+        }
+        finally
+        {
+            File.Delete(scriptPath);
+        }
     }
 
     [Fact]
@@ -129,6 +171,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("CODE_SERVER_PASSWORD (masked)", entrypoint);
         Assert.Contains("CODE_SERVER_HASHED_PASSWORD (masked)", entrypoint);
         Assert.Contains("VsCodeServer__CodeServerAuthMode=password requires CODE_SERVER_PASSWORD", entrypoint);
+        Assert.Contains("validate_accept_eula()", entrypoint);
+        Assert.Contains("ACCEPT_EULA must be set to an accepted opt-in value", entrypoint);
         Assert.Contains("run_as_hagicode code-server --version >/dev/null", entrypoint);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN (masked)", entrypoint);
         Assert.Contains("OpenCode CLI using pinned image version", entrypoint);
@@ -171,6 +215,37 @@ public class DockerBuildIntegrationTests
         Assert.Contains("configure_ssh_private_key_if_needed", entrypoint);
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("Y", true)]
+    [InlineData("yes", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("1", true)]
+    [InlineData("no", false)]
+    public void Entrypoint_ShouldGate_StartupOnAcceptedEulaValues(string? acceptEulaValue, bool shouldPass)
+    {
+        var entrypointPath = Path.Combine(RepoRoot, "docker_deployment", "docker-entrypoint.sh");
+        var result = RunBashScript(
+            $$"""
+            #!/usr/bin/env bash
+            set -euo pipefail
+            source "{{entrypointPath}}"
+            validate_accept_eula
+            """,
+            ("ACCEPT_EULA", acceptEulaValue)
+        );
+
+        if (shouldPass)
+        {
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("Container EULA acceptance detected", result.StdOut);
+            return;
+        }
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("ACCEPT_EULA must be set to an accepted opt-in value", result.StdErr);
+    }
+
     [Fact]
     public void ReleaseDocs_ShouldDescribe_StreamlinedContainerContract()
     {
@@ -200,6 +275,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`GIT_SSH_COMMAND`", readme);
         Assert.Contains("Bundled Code Server runtime", readme);
         Assert.Contains("`VsCodeServer__*`", readme);
+        Assert.Contains("`ACCEPT_EULA=Y`", readme);
         Assert.Contains("`CODE_SERVER_PASSWORD`", readme);
         Assert.Contains("`127.0.0.1`", readme);
         Assert.Contains("`hagicode_data:/app/data`", readme);
@@ -219,6 +295,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`GIT_SSH_COMMAND`", readmeCn);
         Assert.Contains("内置 Code Server 运行时", readmeCn);
         Assert.Contains("`VsCodeServer__*`", readmeCn);
+        Assert.Contains("`ACCEPT_EULA=Y`", readmeCn);
         Assert.Contains("`CODE_SERVER_PASSWORD`", readmeCn);
         Assert.Contains("`127.0.0.1`", readmeCn);
         Assert.Contains("`hagicode_data:/app/data`", readmeCn);
@@ -238,6 +315,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
         Assert.Contains("Retained workflow tool: `openspec`", environmentVariables);
         Assert.Contains("Code Server Deployment Contract", environmentVariables);
+        Assert.Contains("ACCEPT_EULA", environmentVariables);
+        Assert.Contains("Builder EULA toggle", environmentVariables);
+        Assert.Contains("accepted opt-in value", environmentVariables);
         Assert.Contains("VsCodeServer__CodeServerAuthMode", environmentVariables);
         Assert.Contains("CODE_SERVER_PASSWORD", environmentVariables);
         Assert.Contains("CODE_SERVER_HASHED_PASSWORD", environmentVariables);

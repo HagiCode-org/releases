@@ -57,6 +57,7 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 统一镜像现在会把固定版本的 `code-server` 一并内置到运行时基线里，因此 Builder 可以直接导出浏览器 IDE 默认值，而不需要部署者在容器启动后再手工安装额外软件。
 
 - 当 Builder 处于 `full-custom` 模式并保持启用 code-server 时，会直接导出 `VsCodeServer__*` 默认值
+- Builder 现在额外提供一个共享的 EULA 开关；只有显式勾选后才会导出 `ACCEPT_EULA=Y`，否则入口脚本会拒绝继续启动
 - 专用宿主机端口发布仍然是显式开启能力，生成的首层映射默认固定绑定到 `127.0.0.1`
 - 如果使用密码认证，则必须提供 `CODE_SERVER_PASSWORD` 或 `CODE_SERVER_HASHED_PASSWORD`；入口脚本会在应用启动前桥接到标准的 `PASSWORD` / `HASHED_PASSWORD`
 - 运行时状态仍然通过共享的 `hagicode_data:/app/data` 数据卷持久化，不需要额外新增第二个必需的 Code Server 数据卷
