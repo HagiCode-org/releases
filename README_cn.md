@@ -60,7 +60,19 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 - Builder 现在额外提供一个共享的 EULA 开关；只有显式勾选后才会导出 `ACCEPT_EULA=Y`，否则入口脚本会拒绝继续启动
 - 专用宿主机端口发布仍然是显式开启能力，生成的首层映射默认固定绑定到 `127.0.0.1`
 - 如果使用密码认证，则必须提供 `CODE_SERVER_PASSWORD` 或 `CODE_SERVER_HASHED_PASSWORD`；入口脚本会在应用启动前桥接到标准的 `PASSWORD` / `HASHED_PASSWORD`
-- 运行时状态仍然通过共享的 `hagicode_data:/app/data` 数据卷持久化，不需要额外新增第二个必需的 Code Server 数据卷
+- 生产部署必须同时持久化这两个根目录：`hagicode_data:/app/data` 负责保持 system-scoped 资源可写，`hagicode_saves:/app/saves` 负责保持 save-scoped 运行时状态可写
+- 系统级资源仍然通过 `hagicode_data:/app/data` 持久化，托管的 Code Server 运行时数据继续保留在 `/app/data/code-server`
+- save-scoped 的 HagiCode 运行时状态现在通过 `hagicode_saves:/app/saves` 持久化，活动存档根目录位于 `/app/saves/save0/...`
+- 镜像与入口脚本只会准备 `/app/data` 和 `/app/saves`；`/app/saves/save0/config` 与 `/app/saves/save0/data` 仍由应用在初始化活动存档时按需创建
+- 如果你是从旧的单卷部署升级，请在替换容器前先补充 `/app/saves` 的 named volume 或 bind mount
+
+最小挂载布局：
+
+```yaml
+volumes:
+  - hagicode_data:/app/data
+  - hagicode_saves:/app/saves
+```
 
 ## 启动阶段 SSH 引导
 

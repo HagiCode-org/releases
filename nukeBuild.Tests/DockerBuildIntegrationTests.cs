@@ -121,6 +121,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz", dockerfile);
         Assert.Contains("ln -sf \"${CODE_SERVER_INSTALL_DIR}/bin/code-server\" /usr/local/bin/code-server", dockerfile);
         Assert.Contains("code-server --version", dockerfile);
+        Assert.Contains("RUN mkdir -p /app/data /app/saves && \\", dockerfile);
+        Assert.DoesNotContain("/app/saves/save0", dockerfile);
         Assert.DoesNotContain("npm install -g \"code-server@${PINNED_CODE_SERVER_VERSION}\"", dockerfile);
         Assert.DoesNotContain("uipro-cli@", dockerfile);
         Assert.DoesNotContain("@github/copilot@", dockerfile);
@@ -168,6 +170,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("PINNED_OPENCODE_CLI_VERSION", entrypoint);
         Assert.Contains("CODEX_CLI_VERSION", entrypoint);
         Assert.Contains("configure_code_server_runtime_if_needed()", entrypoint);
+        Assert.Contains("HAGICODE_APP_DATA_DIR=\"${HAGICODE_APP_DIR}/data\"", entrypoint);
+        Assert.Contains("HAGICODE_APP_SAVES_DIR=\"${HAGICODE_APP_DIR}/saves\"", entrypoint);
         Assert.Contains("CODE_SERVER_PASSWORD (masked)", entrypoint);
         Assert.Contains("CODE_SERVER_HASHED_PASSWORD (masked)", entrypoint);
         Assert.Contains("VsCodeServer__CodeServerAuthMode=password requires CODE_SERVER_PASSWORD", entrypoint);
@@ -185,6 +189,8 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("\"@github/copilot\"", entrypoint);
         Assert.DoesNotContain("\"@tencent-ai/codebuddy-code\"", entrypoint);
         Assert.DoesNotContain("\"@qoder-ai/qodercli\"", entrypoint);
+        Assert.DoesNotContain("/app/saves/save0/config", entrypoint);
+        Assert.DoesNotContain("/app/saves/save0/data", entrypoint);
     }
 
     [Fact]
@@ -247,6 +253,49 @@ public class DockerBuildIntegrationTests
     }
 
     [Fact]
+    public void Entrypoint_ShouldPrepare_OnlyDualWritableRoots_ForMountedVolumes()
+    {
+        var entrypointPath = Path.Combine(RepoRoot, "docker_deployment", "docker-entrypoint.sh");
+        var result = RunBashScript(
+            $$"""
+            #!/usr/bin/env bash
+            set -euo pipefail
+            source "{{entrypointPath}}"
+
+            temp_root="$(mktemp -d)"
+            trap 'rm -rf "$temp_root"' EXIT
+
+            HAGICODE_USER="$(id -un)"
+            HAGICODE_GROUP="$(id -gn)"
+            HAGICODE_HOME="$temp_root/home"
+            HAGICODE_CLAUDE_DIR="${HAGICODE_HOME}/.claude"
+            HAGICODE_NPM_PREFIX="${HAGICODE_HOME}/.npm-global"
+            HAGICODE_APP_DIR="$temp_root/app"
+            HAGICODE_APP_DATA_DIR="${HAGICODE_APP_DIR}/data"
+            HAGICODE_APP_SAVES_DIR="${HAGICODE_APP_DIR}/saves"
+            HAGICODE_CODE_SERVER_CONFIG_DIR="${HAGICODE_HOME}/.config/code-server"
+            HAGICODE_CODE_SERVER_CACHE_DIR="${HAGICODE_HOME}/.cache/code-server"
+            HAGICODE_CODE_SERVER_SHARE_DIR="${HAGICODE_HOME}/.local/share/code-server"
+            HAGICODE_CODE_SERVER_DATA_DIR="${HAGICODE_APP_DATA_DIR}/code-server"
+
+            chown() { :; }
+
+            ensure_hagicode_runtime_paths
+
+            test -d "$HAGICODE_APP_DATA_DIR"
+            test -d "$HAGICODE_APP_SAVES_DIR"
+            test -d "$HAGICODE_CODE_SERVER_DATA_DIR"
+            test ! -e "$HAGICODE_APP_SAVES_DIR/save0"
+
+            touch "$HAGICODE_APP_DATA_DIR/.write-check"
+            touch "$HAGICODE_APP_SAVES_DIR/.write-check"
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("save0", result.StdOut + result.StdErr);
+    }
+
+    [Fact]
     public void ReleaseDocs_ShouldDescribe_StreamlinedContainerContract()
     {
         var readme = ReadRepoFile("README.md");
@@ -278,7 +327,12 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`ACCEPT_EULA=Y`", readme);
         Assert.Contains("`CODE_SERVER_PASSWORD`", readme);
         Assert.Contains("`127.0.0.1`", readme);
+        Assert.Contains("Both persistence roots are required in production deployments", readme);
         Assert.Contains("`hagicode_data:/app/data`", readme);
+        Assert.Contains("`hagicode_saves:/app/saves`", readme);
+        Assert.Contains("`/app/saves/save0/...`", readme);
+        Assert.Contains("The image and entrypoint prepare only `/app/data` and `/app/saves`", readme);
+        Assert.Contains("add a named volume or bind mount for `/app/saves`", readme);
 
         Assert.Contains("`debian:bookworm-slim`", readmeCn);
         Assert.Contains("Node.js 22", readmeCn);
@@ -298,7 +352,12 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`ACCEPT_EULA=Y`", readmeCn);
         Assert.Contains("`CODE_SERVER_PASSWORD`", readmeCn);
         Assert.Contains("`127.0.0.1`", readmeCn);
+        Assert.Contains("生产部署必须同时持久化这两个根目录", readmeCn);
         Assert.Contains("`hagicode_data:/app/data`", readmeCn);
+        Assert.Contains("`hagicode_saves:/app/saves`", readmeCn);
+        Assert.Contains("`/app/saves/save0/...`", readmeCn);
+        Assert.Contains("镜像与入口脚本只会准备 `/app/data` 和 `/app/saves`", readmeCn);
+        Assert.Contains("补充 `/app/saves` 的 named volume 或 bind mount", readmeCn);
 
         Assert.Contains("CODEBUDDY_API_KEY", environmentVariables);
         Assert.Contains("CODEBUDDY_INTERNET_ENVIRONMENT", environmentVariables);
@@ -324,7 +383,12 @@ public class DockerBuildIntegrationTests
         Assert.Contains("PASSWORD", environmentVariables);
         Assert.Contains("HASHED_PASSWORD", environmentVariables);
         Assert.Contains("code-server --version", environmentVariables);
+        Assert.Contains("Both persistence roots are required in production deployments", environmentVariables);
         Assert.Contains("/app/data/code-server", environmentVariables);
+        Assert.Contains("hagicode_saves:/app/saves", environmentVariables);
+        Assert.Contains("/app/saves/save0/...", environmentVariables);
+        Assert.Contains("entrypoint only prepare `/app/data` and `/app/saves`", environmentVariables);
+        Assert.Contains("add a named volume or bind mount for `/app/saves`", environmentVariables);
         Assert.Contains("SSH_PRIVATE_KEY_PATH", environmentVariables);
         Assert.Contains("SSH_KNOWN_HOSTS_PATH", environmentVariables);
         Assert.Contains("SSH_STRICT_HOST_KEY_CHECKING", environmentVariables);
@@ -389,6 +453,26 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`SSH_STRICT_HOST_KEY_CHECKING`", readmeCn);
         Assert.Contains("`openspec`", readmeCn);
         Assert.Equal(0, new[] { readme, environmentVariables, agents }.Count(doc => doc.Contains("`copilot`") && doc.Contains("default built-in agent CLI")));
+    }
+
+    [Fact]
+    public void ReleaseDocs_ShouldDescribe_BothPersistenceRootsAsRequired()
+    {
+        var readme = ReadRepoFile("README.md");
+        var readmeCn = ReadRepoFile("README_cn.md");
+        var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
+
+        const string requiredRootsEnglish = "Both persistence roots are required in production deployments: `hagicode_data:/app/data` keeps system-scoped assets writable, and `hagicode_saves:/app/saves` keeps save-scoped runtime state writable";
+        const string requiredRootsChinese = "生产部署必须同时持久化这两个根目录：`hagicode_data:/app/data` 负责保持 system-scoped 资源可写，`hagicode_saves:/app/saves` 负责保持 save-scoped 运行时状态可写";
+
+        Assert.Contains(requiredRootsEnglish, readme);
+        Assert.Contains(requiredRootsEnglish, environmentVariables);
+        Assert.Contains("`/app/data/code-server`", readme);
+        Assert.Contains("`/app/saves/save0/...`", readme);
+
+        Assert.Contains(requiredRootsChinese, readmeCn);
+        Assert.Contains("`/app/data/code-server`", readmeCn);
+        Assert.Contains("`/app/saves/save0/...`", readmeCn);
     }
 
     [Fact]

@@ -83,7 +83,19 @@ The unified image now bakes a pinned `code-server` binary into the same runtime 
 - Builder now exposes a shared EULA toggle that exports `ACCEPT_EULA=Y` only when operators explicitly opt in, and the entrypoint refuses startup without an accepted value
 - Dedicated host publishing remains opt-in, and the generated mapping binds to `127.0.0.1` by default for the first exposure step
 - Password auth requires `CODE_SERVER_PASSWORD` or `CODE_SERVER_HASHED_PASSWORD`; the entrypoint bridges those variables to the standard `PASSWORD` / `HASHED_PASSWORD` names before app startup
-- Runtime state still persists through the shared `hagicode_data:/app/data` volume, so there is no second mandatory Code Server data volume
+- Both persistence roots are required in production deployments: `hagicode_data:/app/data` keeps system-scoped assets writable, and `hagicode_saves:/app/saves` keeps save-scoped runtime state writable
+- System-scoped assets still persist through `hagicode_data:/app/data`, and managed Code Server data stays under `/app/data/code-server`
+- Save-scoped HagiCode runtime state now persists through `hagicode_saves:/app/saves`, with the active save rooted at `/app/saves/save0/...`
+- The image and entrypoint prepare only `/app/data` and `/app/saves`; the application runtime still initializes `/app/saves/save0/config` and `/app/saves/save0/data` on demand
+- If you are upgrading from an older single-volume deployment, add a named volume or bind mount for `/app/saves` before replacing the container
+
+Minimal mount layout:
+
+```yaml
+volumes:
+  - hagicode_data:/app/data
+  - hagicode_saves:/app/saves
+```
 
 ## Startup SSH bootstrap
 

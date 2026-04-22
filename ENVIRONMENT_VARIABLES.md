@@ -158,7 +158,11 @@ These variables define how the bundled `code-server` runtime starts when Builder
 - Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
 - The generated Builder mapping binds to `127.0.0.1:<host-port>:<container-port>` by default, so wider exposure should be handled explicitly through a reverse proxy or edited compose file.
 - If `VsCodeServer__CodeServerAuthMode=password`, startup fails fast unless one of `CODE_SERVER_PASSWORD`, `CODE_SERVER_HASHED_PASSWORD`, `PASSWORD`, or `HASHED_PASSWORD` is present.
-- Runtime state still persists through `hagicode_data:/app/data`, with managed Code Server data stored under `/app/data/code-server`.
+- Both persistence roots are required in production deployments: `hagicode_data:/app/data` keeps system-scoped assets writable, and `hagicode_saves:/app/saves` keeps save-scoped runtime state writable.
+- System-scoped assets persist through `hagicode_data:/app/data`, with managed Code Server data stored under `/app/data/code-server`.
+- Save-scoped HagiCode runtime state persists through `hagicode_saves:/app/saves`, with the active save rooted at `/app/saves/save0/...`.
+- The image and entrypoint only prepare `/app/data` and `/app/saves`; the application runtime still initializes `/app/saves/save0/config` and `/app/saves/save0/data`.
+- If you are upgrading from a deployment that only persisted `/app/data`, add a named volume or bind mount for `/app/saves` before moving to this layout.
 
 **Release-side verification sequence**:
 ```bash

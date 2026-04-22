@@ -185,8 +185,8 @@ COPY "lib-${TARGETARCH}/" /app/
 # Set ownership for application directory
 RUN chown -R hagicode:hagicode /app
 
-# Create directory for application data
-RUN mkdir -p /app/data && \
+# Create directories for system-scoped and save-scoped application data
+RUN mkdir -p /app/data /app/saves && \
     chown -R hagicode:hagicode /app
 
 # Expose the application port (default 5000)
