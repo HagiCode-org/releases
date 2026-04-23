@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == '' or '$(Version)' == 'N/A'">0.0.0-ci</Version>
+    <PackageVersion Condition="'$(PackageVersion)' == '' or '$(PackageVersion)' == 'N/A'">$(Version)</PackageVersion>
+  </PropertyGroup>
+</Project>
