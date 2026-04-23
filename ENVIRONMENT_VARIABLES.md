@@ -117,6 +117,57 @@ These variables are used inside Docker containers to configure AI agents:
 - UI-managed installs: `copilot`, `codebuddy`, and `qodercli`
 - Superseded helper: `uipro` is no longer shipped because skill management replaces its runtime role
 
+### Omniroute Unified Provider Bootstrap
+
+These variables control the Omniroute-first startup contract that rewires Claude, Codex/OpenAI, OpenCode, and HagiCode through a local provider proxy.
+
+| Variable | Description | Required | Default | Example |
+|----------|-------------|----------|---------|---------|
+| `OMNIROUTE_ENABLE_BOOTSTRAP` | Enables the provider bootstrap helper. When `false`, the entrypoint skips provider sync and releases the ready file immediately. | No | `true` | `false` |
+| `OMNIROUTE_HOST` | Local Omniroute bind host used when `OMNIROUTE_BASE_URL` is not provided. | No | `127.0.0.1` | `127.0.0.1` |
+| `OMNIROUTE_PORT` | Local Omniroute bind port used when `OMNIROUTE_BASE_URL` is not provided. | No | `4060` | `4060` |
+| `OMNIROUTE_BASE_URL` | Local Omniroute management base URL. | No | `http://127.0.0.1:4060` | `http://127.0.0.1:4060` |
+| `OMNIROUTE_API_BASE_URL` | Local Omniroute API base URL exported back to provider clients and HagiCode. | No | `http://127.0.0.1:4060/v1` | `http://127.0.0.1:4060/v1` |
+| `OMNIROUTE_STATE_DIR` | Persistent Omniroute state directory. | No | `/app/data/omniroute` | `/app/data/omniroute` |
+| `OMNIROUTE_PM2_HOME` | pm2 home used by `pm2-runtime`. | No | `/app/data/omniroute/pm2` | `/app/data/omniroute/pm2` |
+| `OMNIROUTE_RUNTIME_DIR` | Runtime directory for ready files and other transient coordination state. | No | `/app/data/omniroute/runtime` | `/app/data/omniroute/runtime` |
+| `OMNIROUTE_READY_FILE` | Ready file consumed by `wait-for-ready.sh` before HagiCode starts. | No | `/app/data/omniroute/runtime/hagicode.ready` | `/app/data/omniroute/runtime/hagicode.ready` |
+| `OMNIROUTE_BOOTSTRAP_STATE_FILE` | Persisted bootstrap summary used across restarts. | No | `/app/data/omniroute/bootstrap-state.json` | `/app/data/omniroute/bootstrap-state.json` |
+| `OMNIROUTE_INITIAL_PASSWORD` | Omniroute management password used for local `/api/auth/login` bootstrap. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `change-me` |
+| `JWT_SECRET` | Omniroute JWT signing secret. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `jwt_secret_here` |
+| `API_KEY_SECRET` | Omniroute API key secret. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `api_key_secret_here` |
+| `OMNIROUTE_SHARED_API_KEY` | Shared local API key injected into routed Claude/Codex/OpenCode/HagiCode clients. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `shared_local_key` |
+| `OMNIROUTE_STARTUP_TIMEOUT_SECONDS` | Maximum wait time for the Omniroute health endpoint before startup fails. | No | `180` | `240` |
+| `OMNIROUTE_STARTUP_POLL_SECONDS` | Poll interval used while waiting for Omniroute health. | No | `2` | `1` |
+| `HAGICODE_PM2_READY_TIMEOUT_SECONDS` | Maximum wait time used by `wait-for-ready.sh` before the HagiCode app exits. | No | `180` | `240` |
+| `HAGICODE_PM2_READY_POLL_SECONDS` | Poll interval used by `wait-for-ready.sh`. | No | `1` | `2` |
+
+**Behavior notes**:
+- Omniroute runs as a local unified provider proxy on `127.0.0.1:4060` by default, with persistent state under `/app/data/omniroute`.
+- `pm2-runtime` supervises both `omniroute` and `hagicode-app`; the HagiCode process starts through `wait-for-ready.sh` and stays blocked until `OMNIROUTE_READY_FILE` exists.
+- The bootstrap helper logs into local Omniroute through `/api/auth/login`, uses `/api/provider-nodes` and `/api/providers` for idempotent upserts, writes `OMNIROUTE_BOOTSTRAP_STATE_FILE`, and only syncs providers with complete minimum credentials.
+- The startup contract is API-first: it does not mutate Omniroute SQLite files directly.
+- The entrypoint exports `HAGICODE_OMNIROUTE_ENABLED=true`, `HAGICODE_OMNIROUTE_BASE_URL`, `HAGICODE_OMNIROUTE_API_BASE_URL`, `OmniRoute__Enabled`, `OmniRoute__BaseUrl`, and `OmniRoute__ApiBaseUrl` back into the HagiCode runtime.
+- The entrypoint also rewires `ANTHROPIC_URL`, `ANTHROPIC_AUTH_TOKEN`, `CODEX_BASE_URL`, `CODEX_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_API_BASE_URL`, and `OPENCODE_API_KEY` to the local Omniroute endpoint plus the shared local key.
+
+### Upstream Provider Capture For Omniroute Bootstrap
+
+These variables preserve upstream provider connectivity for the bootstrap helper before the entrypoint rewires runtime traffic to local Omniroute.
+
+| Variable | Description | Required | Default / Fallback | Example |
+|----------|-------------|----------|--------------------|---------|
+| `OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL` | Explicit Anthropic-compatible upstream base URL for bootstrap. | No | `ANTHROPIC_URL` | `https://api.anthropic.com` |
+| `OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN` | Explicit Anthropic token for bootstrap. | No | `ANTHROPIC_AUTH_TOKEN` | `sk-ant-...` |
+| `OMNIROUTE_CODEX_UPSTREAM_BASE_URL` | Explicit Codex/OpenAI upstream base URL for bootstrap. | No | `CODEX_BASE_URL` > `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
+| `OMNIROUTE_CODEX_UPSTREAM_API_KEY` | Explicit Codex/OpenAI API key for bootstrap. | No | `CODEX_API_KEY` > `OPENAI_API_KEY` | `sk-...` |
+| `OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL` | Explicit OpenCode upstream base URL for bootstrap. | No | `OPENCODE_BASE_URL` > `OPENCODE_API_BASE_URL` > `OPENCODE_BASE_URL_COMPAT` | `https://opencode.example/v1` |
+| `OMNIROUTE_OPENCODE_UPSTREAM_API_KEY` | Explicit OpenCode API key for bootstrap. | No | `OPENCODE_API_KEY` | `opc_...` |
+
+**Behavior notes**:
+- The entrypoint captures these upstream values before it rewrites runtime traffic to local Omniroute.
+- If the explicit `OMNIROUTE_*_UPSTREAM_*` variables are unset, the bootstrap helper falls back to the current provider environment variables using the precedence shown above.
+- Claude, Codex/OpenAI, and OpenCode are bootstrapped independently. Missing credentials for one provider do not block the others from being synced.
+
 ### SSH Bootstrap Configuration
 
 These variables control the startup-time SSH private key import flow used by downstream `git` and `ssh` commands.

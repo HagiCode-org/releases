@@ -75,6 +75,33 @@ The unified runtime image bakes only the primary agent CLI baseline:
 
 Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because skill management replaces its previous shipped-runtime workflow.
 
+## Omniroute unified provider bootstrap
+
+The release image now treats Omniroute as the unified local provider proxy for Claude, Codex/OpenAI, and OpenCode traffic inside the container.
+
+- Default local bind: `127.0.0.1:4060`
+- Local management/runtime state: `/app/data/omniroute`
+- Shared process supervision: `pm2-runtime`
+- App readiness gate: `/app/data/omniroute/runtime/hagicode.ready`
+
+Startup order is intentionally Omniroute-first:
+
+1. The entrypoint resolves the HagiCode app command and captures upstream provider credentials before any local reroute happens.
+2. The entrypoint normalizes Omniroute runtime paths and persisted secrets under `/app/data/omniroute`.
+3. The entrypoint exports the local Omniroute endpoint back into the runtime environment consumed by `claude`, `codex`, `opencode`, and HagiCode.
+4. `pm2-runtime` starts two managed processes: `omniroute` and `hagicode-app`.
+5. `hagicode-app` starts through `wait-for-ready.sh`, which blocks on the ready file until Omniroute bootstrap succeeds.
+6. The bootstrap helper logs into local Omniroute, upserts provider nodes/connections through the Omniroute HTTP API, writes bootstrap state, and releases the ready file.
+
+Bootstrap is API-first and idempotent. The container does not mutate Omniroute SQLite files directly; it reuses persisted state and upserts only the providers that have the minimum upstream credentials configured.
+
+After bootstrap, the container runtime rewires the main provider endpoints to local Omniroute URLs:
+
+- `ANTHROPIC_URL` points to the local Omniroute API base URL and `ANTHROPIC_AUTH_TOKEN` is replaced with the shared local key for Claude CLI traffic.
+- `CODEX_BASE_URL` / `OPENAI_BASE_URL` point to the local Omniroute API base URL and `CODEX_API_KEY` / `OPENAI_API_KEY` are replaced with the shared local key.
+- `OPENCODE_BASE_URL` / `OPENCODE_API_BASE_URL` point to the local Omniroute API base URL and `OPENCODE_API_KEY` is replaced with the shared local key.
+- HagiCode receives `HAGICODE_OMNIROUTE_ENABLED=true`, `HAGICODE_OMNIROUTE_BASE_URL`, `HAGICODE_OMNIROUTE_API_BASE_URL`, `OmniRoute__Enabled`, `OmniRoute__BaseUrl`, and `OmniRoute__ApiBaseUrl`.
+
 ## Bundled Code Server runtime
 
 The unified image now bakes a pinned `code-server` binary into the same runtime baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.

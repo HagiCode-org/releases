@@ -1,8 +1,8 @@
 #!/bin/bash
 # Docker Entrypoint Script for HagiCode
-# This script configures Claude Code settings before starting the application
+# This script configures runtime prerequisites, bootstraps Omniroute, and starts pm2.
 
-set -e
+set -euo pipefail
 
 HAGICODE_USER="hagicode"
 HAGICODE_GROUP="hagicode"
@@ -17,13 +17,30 @@ HAGICODE_SSH_CONFIG_FILE="${HAGICODE_SSH_DIR}/config"
 HAGICODE_SSH_MANAGED_BEGIN="# >>> HAGICODE SSH BOOTSTRAP >>>"
 HAGICODE_SSH_MANAGED_END="# <<< HAGICODE SSH BOOTSTRAP <<<"
 SSH_STRICT_HOST_KEY_CHECKING_DEFAULT="accept-new"
+
 HAGICODE_APP_DIR="/app"
 HAGICODE_APP_DATA_DIR="${HAGICODE_APP_DIR}/data"
 HAGICODE_APP_SAVES_DIR="${HAGICODE_APP_DIR}/saves"
+HAGICODE_BOOTSTRAP_DIR="${HAGICODE_APP_DIR}/bootstrap"
 HAGICODE_CODE_SERVER_CONFIG_DIR="${HAGICODE_HOME}/.config/code-server"
 HAGICODE_CODE_SERVER_CACHE_DIR="${HAGICODE_HOME}/.cache/code-server"
 HAGICODE_CODE_SERVER_SHARE_DIR="${HAGICODE_HOME}/.local/share/code-server"
 HAGICODE_CODE_SERVER_DATA_DIR="${HAGICODE_APP_DATA_DIR}/code-server"
+
+OMNIROUTE_DEFAULT_HOST="127.0.0.1"
+OMNIROUTE_DEFAULT_PORT="4060"
+OMNIROUTE_DEFAULT_STATE_DIR="${HAGICODE_APP_DATA_DIR}/omniroute"
+OMNIROUTE_DEFAULT_PM2_HOME="${OMNIROUTE_DEFAULT_STATE_DIR}/pm2"
+OMNIROUTE_DEFAULT_RUNTIME_DIR="${OMNIROUTE_DEFAULT_STATE_DIR}/runtime"
+OMNIROUTE_DEFAULT_READY_FILE="${OMNIROUTE_DEFAULT_RUNTIME_DIR}/hagicode.ready"
+OMNIROUTE_DEFAULT_BOOTSTRAP_STATE_FILE="${OMNIROUTE_DEFAULT_STATE_DIR}/bootstrap-state.json"
+OMNIROUTE_DEFAULT_PM2_LOG_DIR="${OMNIROUTE_DEFAULT_STATE_DIR}/logs"
+OMNIROUTE_DEFAULT_PASSWORD_FILE="${OMNIROUTE_DEFAULT_STATE_DIR}/management-password"
+OMNIROUTE_DEFAULT_JWT_SECRET_FILE="${OMNIROUTE_DEFAULT_STATE_DIR}/jwt-secret"
+OMNIROUTE_DEFAULT_API_KEY_SECRET_FILE="${OMNIROUTE_DEFAULT_STATE_DIR}/api-key-secret"
+OMNIROUTE_DEFAULT_SHARED_KEY_FILE="${OMNIROUTE_DEFAULT_STATE_DIR}/shared-api-key"
+
+PM2_RUNTIME_PID=""
 
 export HOME="$HAGICODE_HOME"
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HAGICODE_NPM_PREFIX}"
@@ -53,20 +70,42 @@ ensure_hagicode_runtime_paths() {
     mkdir -p \
         "$HAGICODE_CLAUDE_DIR" \
         "$HAGICODE_NPM_PREFIX" \
+        "$HAGICODE_SSH_DIR" \
         "$HAGICODE_CODE_SERVER_CONFIG_DIR" \
         "$HAGICODE_CODE_SERVER_CACHE_DIR" \
         "$HAGICODE_CODE_SERVER_SHARE_DIR" \
         "$HAGICODE_CODE_SERVER_DATA_DIR" \
         "$HAGICODE_APP_DATA_DIR" \
         "$HAGICODE_APP_SAVES_DIR" \
+        "$HAGICODE_BOOTSTRAP_DIR" \
         "$HAGICODE_APP_DIR"
-    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_HOME" "$HAGICODE_APP_DIR"
+
+    chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_HOME" "$HAGICODE_APP_DIR"
+    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" \
+        "$HAGICODE_CLAUDE_DIR" \
+        "$HAGICODE_SSH_DIR" \
+        "$HAGICODE_CODE_SERVER_CONFIG_DIR" \
+        "$HAGICODE_CODE_SERVER_CACHE_DIR" \
+        "$HAGICODE_CODE_SERVER_SHARE_DIR" \
+        "$HAGICODE_CODE_SERVER_DATA_DIR" \
+        "$HAGICODE_APP_DATA_DIR" \
+        "$HAGICODE_APP_SAVES_DIR" \
+        "$HAGICODE_BOOTSTRAP_DIR"
 }
 
 fail_startup() {
     echo "Error: $*" >&2
     exit 1
 }
+
+cleanup_pm2_runtime() {
+    if [ -n "${PM2_RUNTIME_PID:-}" ] && kill -0 "$PM2_RUNTIME_PID" >/dev/null 2>&1; then
+        kill "$PM2_RUNTIME_PID" >/dev/null 2>&1 || true
+        wait "$PM2_RUNTIME_PID" >/dev/null 2>&1 || true
+    fi
+}
+
+trap cleanup_pm2_runtime EXIT
 
 validate_readable_file_path() {
     local env_name="$1"
@@ -234,45 +273,241 @@ validate_accept_eula() {
     esac
 }
 
-main() {
-# Configure user UID/GID to match host user if specified
-# This allows proper file permissions for mounted volumes
-if [ -n "$PUID" ] && [ -n "$PGID" ]; then
-    echo "Configuring user permissions..."
+normalize_bool() {
+    local value="${1:-}"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+        1|true|yes|on)
+            echo "true"
+            ;;
+        *)
+            echo "false"
+            ;;
+    esac
+}
 
-    # Check if user needs to be created/modified
-    if ! id "$HAGICODE_USER" >/dev/null 2>&1; then
-        # User doesn't exist, create it
-        groupadd -g "$PGID" "$HAGICODE_GROUP"
-        useradd -u "$PUID" -g "$PGID" -s /bin/bash -m -d "$HAGICODE_HOME" "$HAGICODE_USER"
-        echo "✓ Created hagicode user with UID=$PUID, GID=$PGID"
+json_escape() {
+    local value="${1:-}"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+persist_secret_file() {
+    local secret_file="$1"
+    local env_name="$2"
+    local default_prefix="$3"
+    local length="${4:-48}"
+    local resolved_value="${!env_name:-}"
+
+    mkdir -p "$(dirname "$secret_file")"
+
+    if [ -n "$resolved_value" ]; then
+        printf '%s' "$resolved_value" > "$secret_file"
+    elif [ -f "$secret_file" ]; then
+        resolved_value="$(cat "$secret_file")"
     else
-        # User exists, check if UID/GID need to be updated
-        CURRENT_UID=$(id -u "$HAGICODE_USER")
-        CURRENT_GID=$(id -g "$HAGICODE_USER")
-
-        if [ "$CURRENT_UID" != "$PUID" ] || [ "$CURRENT_GID" != "$PGID" ]; then
-            # Modify existing user
-            groupmod -o -g "$PGID" "$HAGICODE_GROUP"
-            usermod -o -u "$PUID" -g "$PGID" -d "$HAGICODE_HOME" "$HAGICODE_USER"
-            echo "✓ Updated hagicode user to UID=$PUID, GID=$PGID"
-        fi
+        local random_hex_length=$(( (length + 1) / 2 ))
+        local random_suffix
+        random_suffix="$(openssl rand -hex "$random_hex_length" | cut -c1-"$length")"
+        resolved_value="${default_prefix}_${random_suffix}"
+        printf '%s' "$resolved_value" > "$secret_file"
     fi
-fi
 
-ensure_hagicode_runtime_paths
-validate_accept_eula
-configure_ssh_private_key_if_needed
-configure_code_server_runtime_if_needed
+    chmod 600 "$secret_file"
+    chown "$HAGICODE_USER:$HAGICODE_GROUP" "$secret_file"
+    export "$env_name=$resolved_value"
+}
 
-# ==================================================
-# CLI Version Overrides
-# ==================================================
-# Use pinned versions baked into image by default.
-# Users can override per tool with:
-# - CLAUDE_CODE_CLI_VERSION
-# - OPENSPEC_CLI_VERSION
-# - CODEX_CLI_VERSION
+resolve_application_command() {
+    if [ -f "/app/PCode.Web.dll" ]; then
+        export HAGICODE_APP_COMMAND="dotnet"
+        export HAGICODE_APP_ARGUMENTS="PCode.Web.dll"
+    elif [ -f "/app/Hagicode.dll" ]; then
+        export HAGICODE_APP_COMMAND="dotnet"
+        export HAGICODE_APP_ARGUMENTS="Hagicode.dll"
+    elif [ -f "/app/lib/PCode.Web.dll" ]; then
+        export HAGICODE_APP_COMMAND="dotnet"
+        export HAGICODE_APP_ARGUMENTS="lib/PCode.Web.dll"
+    elif [ -f "/app/lib/Hagicode.dll" ]; then
+        export HAGICODE_APP_COMMAND="dotnet"
+        export HAGICODE_APP_ARGUMENTS="lib/Hagicode.dll"
+    else
+        fail_startup "Could not find application entry point (PCode.Web.dll or Hagicode.dll)"
+    fi
+}
+
+capture_upstream_provider_inputs() {
+    export OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL="${OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL:-${ANTHROPIC_URL:-}}"
+    export OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN="${OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN:-${ANTHROPIC_AUTH_TOKEN:-}}"
+    export OMNIROUTE_CODEX_UPSTREAM_BASE_URL="${OMNIROUTE_CODEX_UPSTREAM_BASE_URL:-${CODEX_BASE_URL:-${OPENAI_BASE_URL:-}}}"
+    export OMNIROUTE_CODEX_UPSTREAM_API_KEY="${OMNIROUTE_CODEX_UPSTREAM_API_KEY:-${CODEX_API_KEY:-${OPENAI_API_KEY:-}}}"
+    export OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL="${OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL:-${OPENCODE_BASE_URL:-${OPENCODE_API_BASE_URL:-${OPENCODE_BASE_URL_COMPAT:-}}}}"
+    export OMNIROUTE_OPENCODE_UPSTREAM_API_KEY="${OMNIROUTE_OPENCODE_UPSTREAM_API_KEY:-${OPENCODE_API_KEY:-}}"
+}
+
+normalize_omniroute_runtime_contract() {
+    export OMNIROUTE_ENABLE_BOOTSTRAP="${OMNIROUTE_ENABLE_BOOTSTRAP:-true}"
+    export OMNIROUTE_ENABLE_BOOTSTRAP="$(normalize_bool "$OMNIROUTE_ENABLE_BOOTSTRAP")"
+
+    export OMNIROUTE_HOST="${OMNIROUTE_HOST:-$OMNIROUTE_DEFAULT_HOST}"
+    export OMNIROUTE_PORT="${OMNIROUTE_PORT:-$OMNIROUTE_DEFAULT_PORT}"
+    export OMNIROUTE_STATE_DIR="${OMNIROUTE_STATE_DIR:-$OMNIROUTE_DEFAULT_STATE_DIR}"
+    export OMNIROUTE_PM2_HOME="${OMNIROUTE_PM2_HOME:-$OMNIROUTE_DEFAULT_PM2_HOME}"
+    export OMNIROUTE_RUNTIME_DIR="${OMNIROUTE_RUNTIME_DIR:-$OMNIROUTE_DEFAULT_RUNTIME_DIR}"
+    export OMNIROUTE_READY_FILE="${OMNIROUTE_READY_FILE:-$OMNIROUTE_DEFAULT_READY_FILE}"
+    export OMNIROUTE_BOOTSTRAP_STATE_FILE="${OMNIROUTE_BOOTSTRAP_STATE_FILE:-$OMNIROUTE_DEFAULT_BOOTSTRAP_STATE_FILE}"
+    export OMNIROUTE_PM2_LOG_DIR="${OMNIROUTE_PM2_LOG_DIR:-$OMNIROUTE_DEFAULT_PM2_LOG_DIR}"
+    export OMNIROUTE_PASSWORD_FILE="${OMNIROUTE_PASSWORD_FILE:-${OMNIROUTE_STATE_DIR}/management-password}"
+    export OMNIROUTE_JWT_SECRET_FILE="${OMNIROUTE_JWT_SECRET_FILE:-${OMNIROUTE_STATE_DIR}/jwt-secret}"
+    export OMNIROUTE_API_KEY_SECRET_FILE="${OMNIROUTE_API_KEY_SECRET_FILE:-${OMNIROUTE_STATE_DIR}/api-key-secret}"
+    export OMNIROUTE_SHARED_KEY_FILE="${OMNIROUTE_SHARED_KEY_FILE:-${OMNIROUTE_STATE_DIR}/shared-api-key}"
+    export OMNIROUTE_BASE_URL="${OMNIROUTE_BASE_URL:-http://${OMNIROUTE_HOST}:${OMNIROUTE_PORT}}"
+    export OMNIROUTE_API_BASE_URL="${OMNIROUTE_API_BASE_URL:-${OMNIROUTE_BASE_URL}/v1}"
+    export PORT="${PORT:-$OMNIROUTE_PORT}"
+    export DATA_DIR="${DATA_DIR:-$OMNIROUTE_STATE_DIR}"
+    export PM2_HOME="${PM2_HOME:-$OMNIROUTE_PM2_HOME}"
+    export HAGICODE_PM2_READY_FILE="$OMNIROUTE_READY_FILE"
+
+    mkdir -p "$OMNIROUTE_STATE_DIR" "$OMNIROUTE_PM2_HOME" "$OMNIROUTE_RUNTIME_DIR" "$OMNIROUTE_PM2_LOG_DIR"
+    rm -f "$OMNIROUTE_READY_FILE"
+    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$OMNIROUTE_STATE_DIR"
+
+    persist_secret_file "$OMNIROUTE_PASSWORD_FILE" "OMNIROUTE_INITIAL_PASSWORD" "omniroute-pw" 32
+    persist_secret_file "$OMNIROUTE_JWT_SECRET_FILE" "JWT_SECRET" "omniroute-jwt" 48
+    persist_secret_file "$OMNIROUTE_API_KEY_SECRET_FILE" "API_KEY_SECRET" "omniroute-apisecret" 48
+    persist_secret_file "$OMNIROUTE_SHARED_KEY_FILE" "OMNIROUTE_SHARED_API_KEY" "omniroute-shared" 40
+
+    export INITIAL_PASSWORD="$OMNIROUTE_INITIAL_PASSWORD"
+    export OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-$OMNIROUTE_SHARED_API_KEY}"
+    export ROUTER_API_KEY="${ROUTER_API_KEY:-$OMNIROUTE_SHARED_API_KEY}"
+
+    echo "✓ Omniroute runtime contract prepared"
+    echo "  OMNIROUTE_ENABLE_BOOTSTRAP=${OMNIROUTE_ENABLE_BOOTSTRAP}"
+    echo "  OMNIROUTE_BASE_URL=${OMNIROUTE_BASE_URL}"
+    echo "  OMNIROUTE_API_BASE_URL=${OMNIROUTE_API_BASE_URL}"
+    echo "  OMNIROUTE_STATE_DIR=${OMNIROUTE_STATE_DIR}"
+}
+
+wait_for_omniroute_health() {
+    local health_url="${OMNIROUTE_BASE_URL}/api/monitoring/health"
+    local timeout_seconds="${OMNIROUTE_STARTUP_TIMEOUT_SECONDS:-180}"
+    local sleep_seconds="${OMNIROUTE_STARTUP_POLL_SECONDS:-2}"
+    local deadline=$(( $(date +%s) + timeout_seconds ))
+
+    while true; do
+        if curl -fsS "$health_url" >/dev/null 2>&1; then
+            echo "✓ Omniroute health check passed: ${health_url}"
+            return 0
+        fi
+
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            fail_startup "Timed out waiting for Omniroute health endpoint: ${health_url}"
+        fi
+
+        sleep "$sleep_seconds"
+    done
+}
+
+export_local_omniroute_routing() {
+    export HAGICODE_OMNIROUTE_ENABLED="true"
+    export HAGICODE_OMNIROUTE_BASE_URL="$OMNIROUTE_BASE_URL"
+    export HAGICODE_OMNIROUTE_API_BASE_URL="$OMNIROUTE_API_BASE_URL"
+    export OmniRoute__Enabled="true"
+    export OmniRoute__BaseUrl="$OMNIROUTE_BASE_URL"
+    export OmniRoute__ApiBaseUrl="$OMNIROUTE_API_BASE_URL"
+
+    export CODEX_BASE_URL="$OMNIROUTE_API_BASE_URL"
+    export OPENAI_BASE_URL="$OMNIROUTE_API_BASE_URL"
+    export CODEX_API_KEY="$OMNIROUTE_SHARED_API_KEY"
+    export OPENAI_API_KEY="$OMNIROUTE_SHARED_API_KEY"
+    export OPENCODE_BASE_URL="$OMNIROUTE_API_BASE_URL"
+    export OPENCODE_API_BASE_URL="$OMNIROUTE_API_BASE_URL"
+    export OPENCODE_BASE_URL_COMPAT="$OMNIROUTE_API_BASE_URL"
+    export OPENCODE_API_KEY="$OMNIROUTE_SHARED_API_KEY"
+    export ANTHROPIC_URL="$OMNIROUTE_API_BASE_URL"
+    export ANTHROPIC_AUTH_TOKEN="$OMNIROUTE_SHARED_API_KEY"
+
+    echo "✓ Exported local Omniroute routing for Claude, Codex/OpenAI, OpenCode, and HagiCode"
+    echo "  Claude route: ${ANTHROPIC_URL}"
+    echo "  Codex route: ${CODEX_BASE_URL}"
+    echo "  OpenCode route: ${OPENCODE_BASE_URL}"
+}
+
+configure_claude_runtime() {
+    local settings_file="${HAGICODE_CLAUDE_DIR}/settings.json"
+    local mount_path="${CLAUDE_CONFIG_MOUNT_PATH:-/claude-mount}"
+    local -a env_entries=()
+    local index
+
+    mkdir -p "$HAGICODE_CLAUDE_DIR"
+
+    if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+        env_entries+=("    \"ANTHROPIC_AUTH_TOKEN\": \"$(json_escape "${ANTHROPIC_AUTH_TOKEN}")\"")
+        env_entries+=("    \"ANTHROPIC_BASE_URL\": \"$(json_escape "${ANTHROPIC_URL:-}")\"")
+        env_entries+=("    \"ANTHROPIC_URL\": \"$(json_escape "${ANTHROPIC_URL:-}")\"")
+        env_entries+=("    \"API_TIMEOUT_MS\": \"3000000\"")
+        env_entries+=("    \"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC\": \"1\"")
+        env_entries+=("    \"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS\": \"$(json_escape "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}")\"")
+
+        if [ -n "${ANTHROPIC_HAIKU_MODEL:-}" ]; then
+            env_entries+=("    \"ANTHROPIC_DEFAULT_HAIKU_MODEL\": \"$(json_escape "${ANTHROPIC_HAIKU_MODEL}")\"")
+        fi
+
+        if [ -n "${ANTHROPIC_SONNET_MODEL:-}" ]; then
+            env_entries+=("    \"ANTHROPIC_DEFAULT_SONNET_MODEL\": \"$(json_escape "${ANTHROPIC_SONNET_MODEL}")\"")
+        fi
+
+        if [ -n "${ANTHROPIC_OPUS_MODEL:-}" ]; then
+            env_entries+=("    \"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"$(json_escape "${ANTHROPIC_OPUS_MODEL}")\"")
+        fi
+
+        {
+            printf '{\n'
+            printf '  "env": {\n'
+            for index in "${!env_entries[@]}"; do
+                if [ "$index" -gt 0 ]; then
+                    printf ',\n'
+                fi
+                printf '%s' "${env_entries[$index]}"
+            done
+            printf '\n  }\n'
+            printf '}\n'
+        } > "$settings_file"
+        cat > "$HAGICODE_CLAUDE_STATE_FILE" <<EOF
+{
+  "hasCompletedOnboarding": true
+}
+EOF
+        chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR" "$HAGICODE_CLAUDE_STATE_FILE"
+        chmod 600 "$settings_file"
+        echo "✓ Claude Code configured for routed Anthropic endpoint"
+        return 0
+    fi
+
+    if [ "${CLAUDE_HOST_CONFIG_ENABLED:-true}" = "false" ]; then
+        echo "⚠ Warning: Claude host configuration is disabled and no routed token was configured"
+        return 0
+    fi
+
+    if [ -f "${mount_path}/settings.json" ]; then
+        cp "${mount_path}/settings.json" "$settings_file"
+        cat > "$HAGICODE_CLAUDE_STATE_FILE" <<EOF
+{
+  "hasCompletedOnboarding": true
+}
+EOF
+        chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR" "$HAGICODE_CLAUDE_STATE_FILE"
+        chmod 600 "$settings_file"
+        echo "✓ Claude Code configured from mounted host settings"
+        return 0
+    fi
+
+    echo "⚠ Warning: No Claude configuration available after runtime routing"
+}
 
 install_cli_override_if_needed() {
     local display_name="$1"
@@ -293,308 +528,108 @@ install_cli_override_if_needed() {
     fi
 
     echo "✓ ${display_name} version override detected: ${override_env_name}=${override_version}"
-    echo "  Installing ${package_name}@${override_version} ..."
-
     run_as_hagicode npm install -g "${package_name}@${override_version}"
     run_as_hagicode "${command_name}" --version >/dev/null
     run_as_hagicode npm cache clean --force >/dev/null 2>&1 || true
-
-    echo "  Installed ${display_name} ${override_version}"
 }
 
-PINNED_CLAUDE_CODE_CLI_VERSION="${PINNED_CLAUDE_CODE_CLI_VERSION:-2.1.71}"
-PINNED_OPENSPEC_CLI_VERSION="${PINNED_OPENSPEC_CLI_VERSION:-1.2.0}"
-PINNED_OPENCODE_CLI_VERSION="${PINNED_OPENCODE_CLI_VERSION:-1.2.25}"
-PINNED_CODEX_CLI_VERSION="${PINNED_CODEX_CLI_VERSION:-0.112.0}"
+install_cli_overrides() {
+    PINNED_CLAUDE_CODE_CLI_VERSION="${PINNED_CLAUDE_CODE_CLI_VERSION:-2.1.71}"
+    PINNED_OPENSPEC_CLI_VERSION="${PINNED_OPENSPEC_CLI_VERSION:-1.2.0}"
+    PINNED_OPENCODE_CLI_VERSION="${PINNED_OPENCODE_CLI_VERSION:-1.2.25}"
+    PINNED_CODEX_CLI_VERSION="${PINNED_CODEX_CLI_VERSION:-0.112.0}"
 
-install_cli_override_if_needed \
-    "Claude Code CLI" \
-    "@anthropic-ai/claude-code" \
-    "claude" \
-    "$PINNED_CLAUDE_CODE_CLI_VERSION" \
-    "${CLAUDE_CODE_CLI_VERSION:-}" \
-    "CLAUDE_CODE_CLI_VERSION"
+    install_cli_override_if_needed \
+        "Claude Code CLI" \
+        "@anthropic-ai/claude-code" \
+        "claude" \
+        "$PINNED_CLAUDE_CODE_CLI_VERSION" \
+        "${CLAUDE_CODE_CLI_VERSION:-}" \
+        "CLAUDE_CODE_CLI_VERSION"
 
-install_cli_override_if_needed \
-    "OpenSpec CLI" \
-    "@fission-ai/openspec" \
-    "openspec" \
-    "$PINNED_OPENSPEC_CLI_VERSION" \
-    "${OPENSPEC_CLI_VERSION:-}" \
-    "OPENSPEC_CLI_VERSION"
+    install_cli_override_if_needed \
+        "OpenSpec CLI" \
+        "@fission-ai/openspec" \
+        "openspec" \
+        "$PINNED_OPENSPEC_CLI_VERSION" \
+        "${OPENSPEC_CLI_VERSION:-}" \
+        "OPENSPEC_CLI_VERSION"
 
-echo "✓ OpenCode CLI using pinned image version: ${PINNED_OPENCODE_CLI_VERSION} (command: opencode)"
+    echo "✓ OpenCode CLI using pinned image version: ${PINNED_OPENCODE_CLI_VERSION} (command: opencode)"
 
-install_cli_override_if_needed \
-    "Codex CLI" \
-    "@openai/codex" \
-    "codex" \
-    "$PINNED_CODEX_CLI_VERSION" \
-    "${CODEX_CLI_VERSION:-}" \
-    "CODEX_CLI_VERSION"
+    install_cli_override_if_needed \
+        "Codex CLI" \
+        "@openai/codex" \
+        "codex" \
+        "$PINNED_CODEX_CLI_VERSION" \
+        "${CODEX_CLI_VERSION:-}" \
+        "CODEX_CLI_VERSION"
 
-if [ -n "$QODER_PERSONAL_ACCESS_TOKEN" ]; then
-    export QODER_PERSONAL_ACCESS_TOKEN="$QODER_PERSONAL_ACCESS_TOKEN"
-    echo "✓ Qoder runtime token detected: QODER_PERSONAL_ACCESS_TOKEN (masked)"
-else
-    echo "✓ No Qoder runtime token provided; UI-managed qodercli installs may rely on mounted runtime state."
-fi
-
-# ==================================================
-# Claude Code Configuration
-# ==================================================
-# Configuration Priority: ANTHROPIC_AUTH_TOKEN > Host Config > None
-# Host config uses a copy mechanism to solve permission issues
-
-CLAUDE_CONFIGURED=false
-
-# Enable Agent Teams feature by default (set to 0 or empty to disable)
-CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}"
-
-# 1. Check if ANTHROPIC_AUTH_TOKEN environment variable is set (highest priority)
-if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
-    echo "✓ Configuring Claude Code with custom Anthropic API endpoint..."
-    echo "  Source: ANTHROPIC_AUTH_TOKEN environment variable"
-
-    # Create .claude directory for hagicode user
-    mkdir -p "$HAGICODE_CLAUDE_DIR"
-
-    # Build settings.json dynamically based on available configuration
-    SETTINGS_BASE=$(cat <<EOF
-{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
-EOF
-)
-
-    # Add ANTHROPIC_BASE_URL if custom URL is provided
-    if [ -n "$ANTHROPIC_URL" ]; then
-        echo "  Custom API URL: $ANTHROPIC_URL"
-        SETTINGS_BASE="${SETTINGS_BASE}
-    \"ANTHROPIC_BASE_URL\": \"${ANTHROPIC_URL}\","
-    fi
-
-    # Add common settings
-    SETTINGS_BASE="${SETTINGS_BASE}
-    \"API_TIMEOUT_MS\": \"3000000\",
-    \"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC\": 1,
-    \"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS\": \"${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}\""
-
-    # Add model configurations only if variables are set
-    if [ -n "$ANTHROPIC_SONNET_MODEL" ] || [ -n "$ANTHROPIC_OPUS_MODEL" ] || [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
-        SETTINGS_BASE="${SETTINGS_BASE},"
-
-        if [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
-            SETTINGS_BASE="${SETTINGS_BASE}
-    \"ANTHROPIC_DEFAULT_HAIKU_MODEL\": \"${ANTHROPIC_HAIKU_MODEL}\""
-        fi
-
-        if [ -n "$ANTHROPIC_SONNET_MODEL" ]; then
-            # Add comma if Haiku model was also set
-            if [ -n "$ANTHROPIC_HAIKU_MODEL" ]; then
-                SETTINGS_BASE="${SETTINGS_BASE},"
-            fi
-            SETTINGS_BASE="${SETTINGS_BASE}
-    \"ANTHROPIC_DEFAULT_SONNET_MODEL\": \"${ANTHROPIC_SONNET_MODEL}\""
-        fi
-
-        if [ -n "$ANTHROPIC_OPUS_MODEL" ]; then
-            # Add comma if Haiku or Sonnet model was also set
-            if [ -n "$ANTHROPIC_HAIKU_MODEL" ] || [ -n "$ANTHROPIC_SONNET_MODEL" ]; then
-                SETTINGS_BASE="${SETTINGS_BASE},"
-            fi
-            SETTINGS_BASE="${SETTINGS_BASE}
-    \"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"${ANTHROPIC_OPUS_MODEL}\""
-        fi
-    fi
-
-    # Close JSON
-    echo "${SETTINGS_BASE}
-  }
-}" > "$HAGICODE_CLAUDE_DIR/settings.json"
-
-    # Write .claude.json to skip onboarding
-    cat > "$HAGICODE_CLAUDE_STATE_FILE" << EOF
-{
-  "hasCompletedOnboarding": true
-}
-EOF
-
-    # Ensure proper ownership
-    chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR" "$HAGICODE_CLAUDE_STATE_FILE"
-    chmod 600 "$HAGICODE_CLAUDE_DIR/settings.json"
-
-    CLAUDE_CONFIGURED=true
-    echo "✓ Claude Code configured with custom Anthropic API endpoint"
-
-# 2. If ANTHROPIC_AUTH_TOKEN is not set, check for mounted Claude config (host config)
-# Auto-detect host configuration unless explicitly disabled
-else
-    # Default mount path is /claude-mount, can be customized via CLAUDE_CONFIG_MOUNT_PATH
-    MOUNT_PATH="${CLAUDE_CONFIG_MOUNT_PATH:-/claude-mount}"
-
-    # Check if host config is explicitly disabled
-    if [ "$CLAUDE_HOST_CONFIG_ENABLED" = "false" ]; then
-        echo "⚠ Warning: No Claude configuration found"
-        echo "  - ANTHROPIC_AUTH_TOKEN is not set"
-        echo "  - Host configuration is explicitly disabled (CLAUDE_HOST_CONFIG_ENABLED=false)"
-        echo "  → Claude Code features may not work properly"
+    if [ -n "${QODER_PERSONAL_ACCESS_TOKEN:-}" ]; then
+        echo "✓ Qoder runtime token detected: QODER_PERSONAL_ACCESS_TOKEN (masked)"
     else
-        echo "✓ Checking for host Claude configuration..."
-        echo "  Mount path: $MOUNT_PATH"
-
-        # Check if mount path exists with valid config files
-        if [ -e "$MOUNT_PATH" ] || [ -e "$MOUNT_PATH/settings.json" ]; then
-            echo "  Host config detected, attempting to use mounted configuration..."
-
-            # Create target directory
-            mkdir -p "$HAGICODE_CLAUDE_DIR"
-
-            CONFIG_FOUND=false
-            CONFIG_SOURCE=""
-
-            # Copy settings.json from mount
-            if [ -f "$MOUNT_PATH/settings.json" ]; then
-                echo "  Found: settings.json file at $MOUNT_PATH/settings.json"
-                cp "$MOUNT_PATH/settings.json" "$HAGICODE_CLAUDE_DIR/settings.json"
-                chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR/settings.json"
-                chmod 600 "$HAGICODE_CLAUDE_DIR/settings.json"
-                CONFIG_FOUND=true
-                CONFIG_SOURCE="$MOUNT_PATH/settings.json"
-                echo "    ✓ Copied settings.json"
-            fi
-
-            # Always create .claude.json with fixed content
-            cat > "$HAGICODE_CLAUDE_STATE_FILE" << EOF
-{
-  "hasCompletedOnboarding": true
+        echo "✓ No Qoder runtime token provided; UI-managed qodercli installs may rely on mounted runtime state."
+    fi
 }
-EOF
-            chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_STATE_FILE"
-            echo "    ✓ Created .claude.json (onboarding skip)"
 
-            if [ "$CONFIG_FOUND" = true ]; then
-                # Ensure entire .claude directory has correct ownership
-                chown -R "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_CLAUDE_DIR"
-                CLAUDE_CONFIGURED=true
+run_omniroute_bootstrap() {
+    if [ "$OMNIROUTE_ENABLE_BOOTSTRAP" != "true" ]; then
+        echo "✓ Omniroute bootstrap disabled; releasing app startup without provider sync"
+        touch "$OMNIROUTE_READY_FILE"
+        chown "$HAGICODE_USER:$HAGICODE_GROUP" "$OMNIROUTE_READY_FILE"
+        return 0
+    fi
 
-                echo "✓ Claude Code configured with host configuration"
-                echo "  Source: $CONFIG_SOURCE"
-                echo "  Action: Copied to ${HAGICODE_CLAUDE_DIR}/"
-                echo "  Permissions: Configured for hagicode user (600)"
-            else
-                echo "⚠ Warning: Mount path exists but no valid config files found"
-                echo "  Expected: $MOUNT_PATH/settings.json"
-                echo "  → Claude Code features may not work properly"
-            fi
+    wait_for_omniroute_health
+    run_as_hagicode node "${HAGICODE_BOOTSTRAP_DIR}/omniroute-bootstrap.mjs"
+    echo "✓ Omniroute provider bootstrap completed"
+}
 
+start_pm2_runtime() {
+    export PM2_HOME="$OMNIROUTE_PM2_HOME"
+    run_as_hagicode pm2-runtime start "${HAGICODE_BOOTSTRAP_DIR}/ecosystem.config.cjs" &
+    PM2_RUNTIME_PID="$!"
+    echo "✓ Started pm2-runtime with Omniroute and HagiCode application processes"
+}
+
+main() {
+    if [ "$#" -gt 0 ]; then
+        exec_as_hagicode "$@"
+    fi
+
+    if [ -n "${PUID:-}" ] && [ -n "${PGID:-}" ]; then
+        if ! id "$HAGICODE_USER" >/dev/null 2>&1; then
+            groupadd -g "$PGID" "$HAGICODE_GROUP"
+            useradd -u "$PUID" -g "$PGID" -s /bin/bash -m -d "$HAGICODE_HOME" "$HAGICODE_USER"
         else
-            echo "⚠ Warning: No Claude configuration found"
-            echo "  - ANTHROPIC_AUTH_TOKEN is not set"
-            echo "  - No host configuration found at $MOUNT_PATH"
-            echo "  → Claude Code features may not work properly"
-            echo "  → Set ANTHROPIC_AUTH_TOKEN or mount host config to use Claude Code"
+            local current_uid current_gid
+            current_uid="$(id -u "$HAGICODE_USER")"
+            current_gid="$(id -g "$HAGICODE_USER")"
+            if [ "$current_uid" != "$PUID" ] || [ "$current_gid" != "$PGID" ]; then
+                groupmod -o -g "$PGID" "$HAGICODE_GROUP"
+                usermod -o -u "$PUID" -g "$PGID" -d "$HAGICODE_HOME" "$HAGICODE_USER"
+            fi
         fi
     fi
-fi
 
-# ==================================================
-# Copilot Global Settings Bootstrap
-# ==================================================
-# Copilot runtime variables are isolated from Codex/OpenAI variables.
+    ensure_hagicode_runtime_paths
+    validate_accept_eula
+    configure_ssh_private_key_if_needed
+    configure_code_server_runtime_if_needed
+    install_cli_overrides
+    resolve_application_command
+    capture_upstream_provider_inputs
+    normalize_omniroute_runtime_contract
+    export_local_omniroute_routing
+    configure_claude_runtime
+    start_pm2_runtime
+    run_omniroute_bootstrap
 
-if [ -n "$COPILOT_BASE_URL" ] || [ -n "$COPILOT_API_KEY" ]; then
-    echo "✓ Configuring Copilot global settings from environment variables..."
-
-    if [ -n "$COPILOT_BASE_URL" ]; then
-        export COPILOT_BASE_URL="$COPILOT_BASE_URL"
-        echo "  Base URL source: COPILOT_BASE_URL"
+    if [ -z "$PM2_RUNTIME_PID" ]; then
+        fail_startup "pm2-runtime did not start"
     fi
 
-    if [ -n "$COPILOT_API_KEY" ]; then
-        export COPILOT_API_KEY="$COPILOT_API_KEY"
-        echo "  API key source: COPILOT_API_KEY (masked)"
-    fi
-
-    if [ -z "$COPILOT_BASE_URL" ] || [ -z "$COPILOT_API_KEY" ]; then
-        echo "  ⚠ Warning: Copilot endpoint or API key is missing; CLI connectivity may be limited."
-    fi
-else
-    echo "✓ No Copilot global overrides provided; using existing Copilot defaults."
-fi
-
-# ==================================================
-# Codex Global Settings Bootstrap
-# ==================================================
-# Runtime precedence:
-# - Base URL: CODEX_BASE_URL > OPENAI_BASE_URL
-# - API key:  CODEX_API_KEY > OPENAI_API_KEY
-
-CODEX_RESOLVED_BASE_URL=""
-CODEX_BASE_SOURCE=""
-if [ -n "$CODEX_BASE_URL" ]; then
-    CODEX_RESOLVED_BASE_URL="$CODEX_BASE_URL"
-    CODEX_BASE_SOURCE="CODEX_BASE_URL"
-elif [ -n "$OPENAI_BASE_URL" ]; then
-    CODEX_RESOLVED_BASE_URL="$OPENAI_BASE_URL"
-    CODEX_BASE_SOURCE="OPENAI_BASE_URL"
-fi
-
-CODEX_RESOLVED_API_KEY=""
-CODEX_API_SOURCE=""
-if [ -n "$CODEX_API_KEY" ]; then
-    CODEX_RESOLVED_API_KEY="$CODEX_API_KEY"
-    CODEX_API_SOURCE="CODEX_API_KEY"
-elif [ -n "$OPENAI_API_KEY" ]; then
-    CODEX_RESOLVED_API_KEY="$OPENAI_API_KEY"
-    CODEX_API_SOURCE="OPENAI_API_KEY"
-fi
-
-if [ -n "$CODEX_RESOLVED_BASE_URL" ] || [ -n "$CODEX_RESOLVED_API_KEY" ]; then
-    echo "✓ Configuring Codex global settings from environment variables..."
-
-    if [ -n "$CODEX_RESOLVED_BASE_URL" ]; then
-        export CODEX_BASE_URL="$CODEX_RESOLVED_BASE_URL"
-        export OPENAI_BASE_URL="$CODEX_RESOLVED_BASE_URL"
-        echo "  Base URL source: $CODEX_BASE_SOURCE"
-    fi
-
-    if [ -n "$CODEX_RESOLVED_API_KEY" ]; then
-        export CODEX_API_KEY="$CODEX_RESOLVED_API_KEY"
-        export OPENAI_API_KEY="$CODEX_RESOLVED_API_KEY"
-        echo "  API key source: $CODEX_API_SOURCE (masked)"
-    fi
-
-    if [ -z "$CODEX_RESOLVED_BASE_URL" ] || [ -z "$CODEX_RESOLVED_API_KEY" ]; then
-        echo "  ⚠ Warning: Codex endpoint or API key is missing; CLI connectivity may be limited."
-    fi
-else
-    echo "✓ No Codex global overrides provided; using existing Codex defaults."
-fi
-
-# ==================================================
-# Start Application
-# ==================================================
-
-# Start the HagiCode Web application as hagicode user
-# HagiCode requires .NET runtime to run
-# Change to app directory first
-cd /app
-
-# Try different possible entry points
-if [ -f "/app/PCode.Web.dll" ]; then
-    exec_as_hagicode dotnet PCode.Web.dll
-elif [ -f "/app/Hagicode.dll" ]; then
-    exec_as_hagicode dotnet Hagicode.dll
-elif [ -f "/app/lib/PCode.Web.dll" ]; then
-    exec_as_hagicode dotnet lib/PCode.Web.dll
-elif [ -f "/app/lib/Hagicode.dll" ]; then
-    exec_as_hagicode dotnet lib/Hagicode.dll
-else
-    echo "Error: Could not find application entry point"
-    echo "Looked for: PCode.Web.dll, Hagicode.dll, lib/PCode.Web.dll, lib/Hagicode.dll"
-    exit 1
-fi
+    wait "$PM2_RUNTIME_PID"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

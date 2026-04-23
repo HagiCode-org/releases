@@ -97,6 +97,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("PINNED_OPENSPEC_CLI_VERSION=1.2.0", dockerfile);
         Assert.Contains("PINNED_OPENCODE_CLI_VERSION=1.2.25", dockerfile);
         Assert.Contains("PINNED_CODEX_CLI_VERSION=0.112.0", dockerfile);
+        Assert.Contains("PINNED_OMNIROUTE_VERSION=3.6.9", dockerfile);
+        Assert.Contains("PINNED_PM2_VERSION=6.0.14", dockerfile);
         Assert.Contains("PINNED_CODE_SERVER_VERSION=4.115.0", dockerfile);
         Assert.DoesNotContain("PINNED_UIPRO_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_COPILOT_CLI_VERSION", dockerfile);
@@ -116,12 +118,21 @@ public class DockerBuildIntegrationTests
         Assert.Contains("opencode --version", dockerfile);
         Assert.Contains("npm install -g \"@openai/codex@${PINNED_CODEX_CLI_VERSION}\"", dockerfile);
         Assert.Contains("codex --version", dockerfile);
+        Assert.Contains("npm install -g \"omniroute@${PINNED_OMNIROUTE_VERSION}\" \"pm2@${PINNED_PM2_VERSION}\"", dockerfile);
+        Assert.Contains("omniroute --help >/dev/null", dockerfile);
+        Assert.Contains("pm2 --version", dockerfile);
+        Assert.Contains("command -v pm2-runtime >/dev/null", dockerfile);
+        Assert.Contains("COPY --chown=hagicode:hagicode ecosystem.config.cjs /app/bootstrap/ecosystem.config.cjs", dockerfile);
+        Assert.Contains("COPY --chown=hagicode:hagicode omniroute-bootstrap.mjs /app/bootstrap/omniroute-bootstrap.mjs", dockerfile);
+        Assert.Contains("COPY --chown=hagicode:hagicode wait-for-ready.sh /app/bootstrap/wait-for-ready.sh", dockerfile);
+        Assert.Contains("chmod +x /app/bootstrap/wait-for-ready.sh", dockerfile);
+        Assert.Contains("RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \\", dockerfile);
         Assert.Contains("code-server: 4.115.0 (standalone release archive)", dockerfile);
         Assert.Contains("Unsupported architecture for code-server", dockerfile);
         Assert.Contains("https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz", dockerfile);
         Assert.Contains("ln -sf \"${CODE_SERVER_INSTALL_DIR}/bin/code-server\" /usr/local/bin/code-server", dockerfile);
         Assert.Contains("code-server --version", dockerfile);
-        Assert.Contains("RUN mkdir -p /app/data /app/saves && \\", dockerfile);
+        Assert.Contains("RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \\", dockerfile);
         Assert.DoesNotContain("/app/saves/save0", dockerfile);
         Assert.DoesNotContain("npm install -g \"code-server@${PINNED_CODE_SERVER_VERSION}\"", dockerfile);
         Assert.DoesNotContain("uipro-cli@", dockerfile);
@@ -150,9 +161,17 @@ public class DockerBuildIntegrationTests
     }
 
     [Fact]
-    public void Entrypoint_ShouldExpose_OnlyRetainedCliOverrides()
+    public void Entrypoint_ShouldBootstrap_OmnirouteBeforeReleasingHagiCodeRuntime()
     {
         var entrypoint = ReadRepoFile("docker_deployment/docker-entrypoint.sh");
+        var mainStart = entrypoint.IndexOf("main() {", StringComparison.Ordinal);
+        var mainSection = entrypoint.Substring(mainStart);
+        var captureIndex = mainSection.IndexOf("capture_upstream_provider_inputs", StringComparison.Ordinal);
+        var normalizeIndex = mainSection.IndexOf("normalize_omniroute_runtime_contract", StringComparison.Ordinal);
+        var exportIndex = mainSection.IndexOf("export_local_omniroute_routing", StringComparison.Ordinal);
+        var configureClaudeIndex = mainSection.IndexOf("configure_claude_runtime", StringComparison.Ordinal);
+        var pm2Index = mainSection.IndexOf("start_pm2_runtime", StringComparison.Ordinal);
+        var bootstrapIndex = mainSection.IndexOf("run_omniroute_bootstrap", StringComparison.Ordinal);
 
         Assert.Contains("run_as_hagicode()", entrypoint);
         Assert.Contains("exec_as_hagicode()", entrypoint);
@@ -161,7 +180,14 @@ public class DockerBuildIntegrationTests
         Assert.Contains("usermod -o -u \"$PUID\" -g \"$PGID\" -d \"$HAGICODE_HOME\" \"$HAGICODE_USER\"", entrypoint);
         Assert.Contains("run_as_hagicode npm install -g", entrypoint);
         Assert.Contains("run_as_hagicode \"${command_name}\" --version >/dev/null", entrypoint);
-        Assert.Contains("exec_as_hagicode dotnet PCode.Web.dll", entrypoint);
+        Assert.Contains("capture_upstream_provider_inputs()", entrypoint);
+        Assert.Contains("normalize_omniroute_runtime_contract()", entrypoint);
+        Assert.Contains("wait_for_omniroute_health()", entrypoint);
+        Assert.Contains("export_local_omniroute_routing()", entrypoint);
+        Assert.Contains("configure_claude_runtime()", entrypoint);
+        Assert.Contains("run_omniroute_bootstrap()", entrypoint);
+        Assert.Contains("start_pm2_runtime()", entrypoint);
+        Assert.Contains("json_escape()", entrypoint);
         Assert.DoesNotContain("deluser hagicode", entrypoint);
         Assert.DoesNotContain("gosu node", entrypoint);
         Assert.DoesNotContain("/home/node", entrypoint);
@@ -180,6 +206,26 @@ public class DockerBuildIntegrationTests
         Assert.Contains("run_as_hagicode code-server --version >/dev/null", entrypoint);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN (masked)", entrypoint);
         Assert.Contains("OpenCode CLI using pinned image version", entrypoint);
+        Assert.Contains("OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN", entrypoint);
+        Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_BASE_URL", entrypoint);
+        Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_API_KEY", entrypoint);
+        Assert.Contains("OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL", entrypoint);
+        Assert.Contains("OMNIROUTE_OPENCODE_UPSTREAM_API_KEY", entrypoint);
+        Assert.Contains("OMNIROUTE_PASSWORD_FILE", entrypoint);
+        Assert.Contains("OMNIROUTE_SHARED_KEY_FILE", entrypoint);
+        Assert.Contains("OMNIROUTE_SHARED_API_KEY", entrypoint);
+        Assert.Contains("HAGICODE_PM2_READY_FILE", entrypoint);
+        Assert.Contains("run_as_hagicode pm2-runtime start", entrypoint);
+        Assert.Contains("run_as_hagicode node \"${HAGICODE_BOOTSTRAP_DIR}/omniroute-bootstrap.mjs\"", entrypoint);
+        Assert.Contains("touch \"$OMNIROUTE_READY_FILE\"", entrypoint);
+        Assert.Contains("HAGICODE_OMNIROUTE_BASE_URL", entrypoint);
+        Assert.Contains("HAGICODE_OMNIROUTE_API_BASE_URL", entrypoint);
+        Assert.Contains("OmniRoute__BaseUrl", entrypoint);
+        Assert.Contains("OmniRoute__ApiBaseUrl", entrypoint);
+        Assert.Contains("ANTHROPIC_URL=\"$OMNIROUTE_API_BASE_URL\"", entrypoint);
+        Assert.Contains("CODEX_BASE_URL=\"$OMNIROUTE_API_BASE_URL\"", entrypoint);
+        Assert.Contains("OPENAI_BASE_URL=\"$OMNIROUTE_API_BASE_URL\"", entrypoint);
+        Assert.Contains("OPENCODE_BASE_URL=\"$OMNIROUTE_API_BASE_URL\"", entrypoint);
         Assert.DoesNotContain("${OPENCODE_CLI_VERSION", entrypoint);
         Assert.DoesNotContain("UIPRO_CLI_VERSION", entrypoint);
         Assert.DoesNotContain("COPILOT_CLI_VERSION", entrypoint);
@@ -191,6 +237,47 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("\"@qoder-ai/qodercli\"", entrypoint);
         Assert.DoesNotContain("/app/saves/save0/config", entrypoint);
         Assert.DoesNotContain("/app/saves/save0/data", entrypoint);
+        Assert.DoesNotContain("exec_as_hagicode dotnet PCode.Web.dll", entrypoint);
+
+        Assert.True(mainStart >= 0, "Entrypoint should declare a main function.");
+        Assert.True(captureIndex >= 0, "Entrypoint should capture upstream provider inputs.");
+        Assert.True(normalizeIndex > captureIndex, "Entrypoint should normalize the Omniroute runtime contract after capturing upstream inputs.");
+        Assert.True(exportIndex > normalizeIndex, "Entrypoint should export local Omniroute routing after runtime normalization.");
+        Assert.True(configureClaudeIndex > exportIndex, "Entrypoint should configure Claude after local routing is available.");
+        Assert.True(pm2Index > configureClaudeIndex, "Entrypoint should start pm2 after routing and Claude configuration are ready.");
+        Assert.True(bootstrapIndex > pm2Index, "Entrypoint should run provider bootstrap only after pm2 has started Omniroute.");
+    }
+
+    [Fact]
+    public void OmnirouteSupervisionArtifacts_ShouldStayAlignedWithDockerRuntimeContract()
+    {
+        var ecosystem = ReadRepoFile("docker_deployment/ecosystem.config.cjs");
+        var waitForReady = ReadRepoFile("docker_deployment/wait-for-ready.sh");
+        var bootstrap = ReadRepoFile("docker_deployment/omniroute-bootstrap.mjs");
+
+        Assert.Contains("name: \"omniroute\"", ecosystem);
+        Assert.Contains("name: \"hagicode-app\"", ecosystem);
+        Assert.Contains("script: \"omniroute\"", ecosystem);
+        Assert.Contains("script: path.join(__dirname, \"wait-for-ready.sh\")", ecosystem);
+        Assert.Contains("HAGICODE_APP_COMMAND is required for pm2 startup", ecosystem);
+
+        Assert.Contains("READY_FILE=\"${HAGICODE_PM2_READY_FILE:?HAGICODE_PM2_READY_FILE is required}\"", waitForReady);
+        Assert.Contains("HAGICODE_PM2_READY_TIMEOUT_SECONDS", waitForReady);
+        Assert.Contains("HAGICODE_PM2_READY_POLL_SECONDS", waitForReady);
+        Assert.Contains("Timed out waiting for ready file", waitForReady);
+
+        Assert.Contains("/api/auth/login", bootstrap);
+        Assert.Contains("/api/provider-nodes", bootstrap);
+        Assert.Contains("/api/providers", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_CODEX_UPSTREAM_API_KEY || process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_OPENCODE_UPSTREAM_API_KEY || process.env.OPENCODE_API_KEY", bootstrap);
+        Assert.Contains("await ensureDirectory(path.dirname(bootstrapStateFile));", bootstrap);
+        Assert.Contains("await ensureDirectory(path.dirname(readyFile));", bootstrap);
+        Assert.Contains("await fs.writeFile(readyFile", bootstrap);
+        Assert.Contains("provider: \"claude\"", bootstrap);
+        Assert.Contains("provider: \"codex\"", bootstrap);
+        Assert.Contains("provider: \"opencode\"", bootstrap);
     }
 
     [Fact]
@@ -269,10 +356,16 @@ public class DockerBuildIntegrationTests
             HAGICODE_GROUP="$(id -gn)"
             HAGICODE_HOME="$temp_root/home"
             HAGICODE_CLAUDE_DIR="${HAGICODE_HOME}/.claude"
+            HAGICODE_CLAUDE_STATE_FILE="${HAGICODE_HOME}/.claude.json"
             HAGICODE_NPM_PREFIX="${HAGICODE_HOME}/.npm-global"
+            HAGICODE_SSH_DIR="${HAGICODE_HOME}/.ssh"
+            HAGICODE_IMPORTED_SSH_KEY="${HAGICODE_SSH_DIR}/imported_key"
+            HAGICODE_IMPORTED_KNOWN_HOSTS="${HAGICODE_SSH_DIR}/known_hosts"
+            HAGICODE_SSH_CONFIG_FILE="${HAGICODE_SSH_DIR}/config"
             HAGICODE_APP_DIR="$temp_root/app"
             HAGICODE_APP_DATA_DIR="${HAGICODE_APP_DIR}/data"
             HAGICODE_APP_SAVES_DIR="${HAGICODE_APP_DIR}/saves"
+            HAGICODE_BOOTSTRAP_DIR="${HAGICODE_APP_DIR}/bootstrap"
             HAGICODE_CODE_SERVER_CONFIG_DIR="${HAGICODE_HOME}/.config/code-server"
             HAGICODE_CODE_SERVER_CACHE_DIR="${HAGICODE_HOME}/.cache/code-server"
             HAGICODE_CODE_SERVER_SHARE_DIR="${HAGICODE_HOME}/.local/share/code-server"
@@ -296,12 +389,11 @@ public class DockerBuildIntegrationTests
     }
 
     [Fact]
-    public void ReleaseDocs_ShouldDescribe_StreamlinedContainerContract()
+    public void ReleaseDocs_ShouldDescribe_OmnirouteUnifiedProviderContract()
     {
         var readme = ReadRepoFile("README.md");
         var readmeCn = ReadRepoFile("README_cn.md");
         var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
-        var agents = ReadRepoFile("AGENTS.md");
 
         Assert.Contains("clean `debian:bookworm-slim` base", readme);
         Assert.Contains("Node.js 22 is installed through an image-managed NVM layout", readme);
@@ -333,6 +425,16 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`/app/saves/save0/...`", readme);
         Assert.Contains("The image and entrypoint prepare only `/app/data` and `/app/saves`", readme);
         Assert.Contains("add a named volume or bind mount for `/app/saves`", readme);
+        Assert.Contains("Omniroute as the unified local provider proxy", readme);
+        Assert.Contains("`127.0.0.1:4060`", readme);
+        Assert.Contains("`/app/data/omniroute`", readme);
+        Assert.Contains("`pm2-runtime`", readme);
+        Assert.Contains("`wait-for-ready.sh`", readme);
+        Assert.Contains("`hagicode-app`", readme);
+        Assert.Contains("`/app/data/omniroute/runtime/hagicode.ready`", readme);
+        Assert.Contains("upserts provider nodes/connections through the Omniroute HTTP API", readme);
+        Assert.Contains("`HAGICODE_OMNIROUTE_ENABLED=true`", readme);
+        Assert.Contains("`OmniRoute__BaseUrl`", readme);
 
         Assert.Contains("`debian:bookworm-slim`", readmeCn);
         Assert.Contains("Node.js 22", readmeCn);
@@ -358,6 +460,16 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`/app/saves/save0/...`", readmeCn);
         Assert.Contains("镜像与入口脚本只会准备 `/app/data` 和 `/app/saves`", readmeCn);
         Assert.Contains("补充 `/app/saves` 的 named volume 或 bind mount", readmeCn);
+        Assert.Contains("Omniroute 作为容器内部 Claude、Codex/OpenAI 与 OpenCode 流量的统一本地 provider proxy", readmeCn);
+        Assert.Contains("`127.0.0.1:4060`", readmeCn);
+        Assert.Contains("`/app/data/omniroute`", readmeCn);
+        Assert.Contains("`pm2-runtime`", readmeCn);
+        Assert.Contains("`wait-for-ready.sh`", readmeCn);
+        Assert.Contains("`hagicode-app`", readmeCn);
+        Assert.Contains("`/app/data/omniroute/runtime/hagicode.ready`", readmeCn);
+        Assert.Contains("幂等 upsert provider node 与 connection", readmeCn);
+        Assert.Contains("`HAGICODE_OMNIROUTE_ENABLED=true`", readmeCn);
+        Assert.Contains("`OmniRoute__BaseUrl`", readmeCn);
 
         Assert.Contains("CODEBUDDY_API_KEY", environmentVariables);
         Assert.Contains("CODEBUDDY_INTERNET_ENVIRONMENT", environmentVariables);
@@ -395,37 +507,35 @@ public class DockerBuildIntegrationTests
         Assert.Contains("skip SSH bootstrap", environmentVariables);
         Assert.Contains("`accept-new`", environmentVariables);
         Assert.Contains("GIT_SSH_COMMAND", environmentVariables);
+        Assert.Contains("Omniroute Unified Provider Bootstrap", environmentVariables);
+        Assert.Contains("OMNIROUTE_ENABLE_BOOTSTRAP", environmentVariables);
+        Assert.Contains("OMNIROUTE_BASE_URL", environmentVariables);
+        Assert.Contains("OMNIROUTE_API_BASE_URL", environmentVariables);
+        Assert.Contains("OMNIROUTE_STATE_DIR", environmentVariables);
+        Assert.Contains("OMNIROUTE_PM2_HOME", environmentVariables);
+        Assert.Contains("OMNIROUTE_READY_FILE", environmentVariables);
+        Assert.Contains("OMNIROUTE_BOOTSTRAP_STATE_FILE", environmentVariables);
+        Assert.Contains("OMNIROUTE_SHARED_API_KEY", environmentVariables);
+        Assert.Contains("HAGICODE_PM2_READY_TIMEOUT_SECONDS", environmentVariables);
+        Assert.Contains("pm2-runtime", environmentVariables);
+        Assert.Contains("wait-for-ready.sh", environmentVariables);
+        Assert.Contains("API-first", environmentVariables);
+        Assert.Contains("HAGICODE_OMNIROUTE_ENABLED=true", environmentVariables);
+        Assert.Contains("OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN", environmentVariables);
+        Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_API_KEY", environmentVariables);
+        Assert.Contains("OMNIROUTE_OPENCODE_UPSTREAM_API_KEY", environmentVariables);
         Assert.DoesNotContain("UIPRO_CLI_VERSION", environmentVariables);
         Assert.DoesNotContain("COPILOT_CLI_VERSION", environmentVariables);
         Assert.DoesNotContain("CODEBUDDY_CLI_VERSION", environmentVariables);
         Assert.DoesNotContain("QODER_CLI_VERSION", environmentVariables);
-
-        Assert.Contains("The unified release image keeps only the primary agent CLI baseline baked into the container", agents);
-        Assert.Contains("Workflow tool: `openspec`", agents);
-        Assert.Contains("Runtime SSH client: `openssh-client`", agents);
-        Assert.Contains("Base stages start from `debian:bookworm-slim`", agents);
-        Assert.Contains("Node.js 22 is installed through a shared NVM layout", agents);
-        Assert.DoesNotContain("Node.js 24", agents);
-        Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", agents);
-        Assert.Contains("code-server is installed from the pinned standalone release archive", agents);
-        Assert.Contains("`hagicode` is the only supported non-root runtime user", agents);
-        Assert.Contains("`qodercli` now follows the UI-managed install path", agents);
-        Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN", agents);
-        Assert.Contains("skill management replaces its previous runtime role", agents);
-        Assert.Contains("SSH_PRIVATE_KEY_PATH", agents);
-        Assert.Contains("SSH_KNOWN_HOSTS_PATH", agents);
-        Assert.Contains("SSH_STRICT_HOST_KEY_CHECKING", agents);
-        Assert.Contains("defaults to `accept-new`", agents);
-        Assert.Contains("exports `GIT_SSH_COMMAND`", agents);
     }
 
     [Fact]
-    public void ReleaseDocs_ShouldKeep_SshBootstrapAndPrimaryCliBaselineAligned()
+    public void ReleaseDocs_ShouldKeep_SshBootstrapAndOmnirouteRoutingAligned()
     {
         var readme = ReadRepoFile("README.md");
         var readmeCn = ReadRepoFile("README_cn.md");
         var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
-        var agents = ReadRepoFile("AGENTS.md");
 
         var sharedEnglishTokens = new[]
         {
@@ -438,13 +548,15 @@ public class DockerBuildIntegrationTests
             "`opencode`",
             "`codex`",
             "`openspec`",
+            "Omniroute",
+            "127.0.0.1:4060",
+            "/app/data/omniroute",
         };
 
         foreach (var token in sharedEnglishTokens)
         {
             Assert.Contains(token, readme);
             Assert.Contains(token, environmentVariables);
-            Assert.Contains(token, agents);
         }
 
         Assert.Contains("主要 agent CLI 基线", readmeCn);
@@ -452,7 +564,10 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`SSH_KNOWN_HOSTS_PATH`", readmeCn);
         Assert.Contains("`SSH_STRICT_HOST_KEY_CHECKING`", readmeCn);
         Assert.Contains("`openspec`", readmeCn);
-        Assert.Equal(0, new[] { readme, environmentVariables, agents }.Count(doc => doc.Contains("`copilot`") && doc.Contains("default built-in agent CLI")));
+        Assert.Contains("Omniroute", readmeCn);
+        Assert.Contains("`127.0.0.1:4060`", readmeCn);
+        Assert.Contains("`/app/data/omniroute`", readmeCn);
+        Assert.Equal(0, new[] { readme, environmentVariables }.Count(doc => doc.Contains("`copilot`") && doc.Contains("default built-in agent CLI")));
     }
 
     [Fact]
@@ -476,13 +591,23 @@ public class DockerBuildIntegrationTests
     }
 
     [Fact]
-    public void CodexRuntimeVariables_ShouldUseDeterministicPrecedence()
+    public void OmnirouteBootstrap_ShouldPreserveUpstreamProviderPrecedenceBeforeLocalReroute()
     {
         var entrypoint = ReadRepoFile("docker_deployment/docker-entrypoint.sh");
+        var bootstrap = ReadRepoFile("docker_deployment/omniroute-bootstrap.mjs");
 
-        Assert.Contains("CODEX_BASE_URL > OPENAI_BASE_URL", entrypoint);
-        Assert.Contains("CODEX_API_KEY > OPENAI_API_KEY", entrypoint);
-        Assert.Contains("API key source: $CODEX_API_SOURCE (masked)", entrypoint);
+        Assert.Contains("OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL", entrypoint);
+        Assert.Contains("OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN", entrypoint);
+        Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_BASE_URL", entrypoint);
+        Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_API_KEY", entrypoint);
+        Assert.Contains("OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL", entrypoint);
+        Assert.Contains("OMNIROUTE_OPENCODE_UPSTREAM_API_KEY", entrypoint);
+        Assert.Contains("process.env.OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL || process.env.ANTHROPIC_URL", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_CODEX_UPSTREAM_BASE_URL ||", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_CODEX_UPSTREAM_API_KEY || process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL ||", bootstrap);
+        Assert.Contains("process.env.OMNIROUTE_OPENCODE_UPSTREAM_API_KEY || process.env.OPENCODE_API_KEY", bootstrap);
     }
 
     [Fact]

@@ -6,6 +6,8 @@
 # - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
 # - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
 # - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
+# - OmniRoute: 3.6.9 (omniroute@3.6.9)
+# - pm2: 6.0.14 (pm2@6.0.14)
 # - code-server: 4.115.0 (standalone release archive)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
@@ -33,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gosu \
     git \
+    libicu72 \
     openssh-client \
     wget \
     xz-utils \
@@ -58,6 +61,8 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
     PINNED_OPENCODE_CLI_VERSION=1.2.25 \
     PINNED_CODEX_CLI_VERSION=0.112.0 \
+    PINNED_OMNIROUTE_VERSION=3.6.9 \
+    PINNED_PM2_VERSION=6.0.14 \
     PINNED_CODE_SERVER_VERSION=4.115.0
 ENV PATH="/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
@@ -121,6 +126,13 @@ RUN npm install -g "@openai/codex@${PINNED_CODEX_CLI_VERSION}" && \
     codex --version && \
     npm cache clean --force
 
+# OmniRoute and pm2 provide the unified local provider proxy and shared process supervision layer
+RUN npm install -g "omniroute@${PINNED_OMNIROUTE_VERSION}" "pm2@${PINNED_PM2_VERSION}" && \
+    omniroute --help >/dev/null && \
+    pm2 --version && \
+    command -v pm2-runtime >/dev/null && \
+    npm cache clean --force
+
 # Switch back to root for final setup
 USER root
 WORKDIR /app
@@ -171,6 +183,12 @@ ENV ASPNETCORE_URLS=http://+:5000
 COPY --chown=hagicode:hagicode docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Copy shared process supervision artifacts used by the Omniroute-first startup contract
+COPY --chown=hagicode:hagicode ecosystem.config.cjs /app/bootstrap/ecosystem.config.cjs
+COPY --chown=hagicode:hagicode omniroute-bootstrap.mjs /app/bootstrap/omniroute-bootstrap.mjs
+COPY --chown=hagicode:hagicode wait-for-ready.sh /app/bootstrap/wait-for-ready.sh
+RUN chmod +x /app/bootstrap/wait-for-ready.sh
+
 # Copy application structure from Linux platform package
 # Framework-dependent package structure:
 # - lib/        : Application binaries and dependencies (NO runtime)
@@ -186,7 +204,7 @@ COPY "lib-${TARGETARCH}/" /app/
 RUN chown -R hagicode:hagicode /app
 
 # Create directories for system-scoped and save-scoped application data
-RUN mkdir -p /app/data /app/saves && \
+RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \
     chown -R hagicode:hagicode /app
 
 # Expose the application port (default 5000)
@@ -199,7 +217,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 CMD curl 
 # Set working directory to /app where the application resides
 WORKDIR /app
 
-# Run entrypoint script which will configure settings and then start the app
-# The entrypoint will execute: dotnet PCode.Web.dll
-# dotnet is available from PATH (installed in base stage at /usr/share/dotnet)
+# Run entrypoint script which configures Omniroute, CLI routing, and pm2-managed startup
 ENTRYPOINT ["docker-entrypoint.sh"]

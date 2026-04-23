@@ -52,6 +52,33 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 像 `copilot`、`codebuddy`、`qodercli` 这样的 provider CLI 现在都走 HagiCode UI 管理的安装路径，不再作为容器默认内置能力。`uipro` 也不再随镜像发布，因为对应能力已经由技能管理机制接管。
 
+## Omniroute 统一 provider 引导
+
+发布镜像现在把 Omniroute 作为容器内部 Claude、Codex/OpenAI 与 OpenCode 流量的统一本地 provider proxy。
+
+- 默认本地监听：`127.0.0.1:4060`
+- 本地管理与运行时状态目录：`/app/data/omniroute`
+- 共享进程托管层：`pm2-runtime`
+- 应用就绪门禁文件：`/app/data/omniroute/runtime/hagicode.ready`
+
+启动顺序固定为 Omniroute 优先：
+
+1. 入口脚本先解析 HagiCode 应用启动命令，并在任何本地回环改写发生前捕获上游 provider 凭据。
+2. 入口脚本规范化 Omniroute 运行路径，并把持久化密钥写入 `/app/data/omniroute`。
+3. 入口脚本把本地 Omniroute 端点重新导出到 `claude`、`codex`、`opencode` 与 HagiCode 使用的运行时环境变量中。
+4. `pm2-runtime` 统一启动两个托管进程：`omniroute` 与 `hagicode-app`。
+5. `hagicode-app` 会通过 `wait-for-ready.sh` 启动，在 Omniroute bootstrap 成功并写入 ready file 前一直阻塞。
+6. bootstrap helper 会登录本地 Omniroute，通过 HTTP API 幂等 upsert provider node 与 connection，写入 bootstrap state，然后释放 ready file。
+
+整个 bootstrap 过程是 API-first 且幂等的。容器不会直接修改 Omniroute 的 SQLite 文件，而是复用持久化状态，只对已经具备最小上游凭据的 provider 执行 upsert。
+
+bootstrap 完成后，容器会把主要 provider 端点统一回环到本地 Omniroute：
+
+- `ANTHROPIC_URL` 会改写为本地 Omniroute API 基址，`ANTHROPIC_AUTH_TOKEN` 会替换为本地共享密钥，供 Claude CLI 走统一代理。
+- `CODEX_BASE_URL` / `OPENAI_BASE_URL` 会改写为本地 Omniroute API 基址，`CODEX_API_KEY` / `OPENAI_API_KEY` 会替换为本地共享密钥。
+- `OPENCODE_BASE_URL` / `OPENCODE_API_BASE_URL` 会改写为本地 Omniroute API 基址，`OPENCODE_API_KEY` 会替换为本地共享密钥。
+- HagiCode 会收到 `HAGICODE_OMNIROUTE_ENABLED=true`、`HAGICODE_OMNIROUTE_BASE_URL`、`HAGICODE_OMNIROUTE_API_BASE_URL`、`OmniRoute__Enabled`、`OmniRoute__BaseUrl` 与 `OmniRoute__ApiBaseUrl`。
+
 ## 内置 Code Server 运行时
 
 统一镜像现在会把固定版本的 `code-server` 一并内置到运行时基线里，因此 Builder 可以直接导出浏览器 IDE 默认值，而不需要部署者在容器启动后再手工安装额外软件。
