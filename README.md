@@ -53,7 +53,7 @@ cp .env.secrets.local.example .env.secrets.local
 - Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
 - When `AZURE_BLOB_SAS_URL` is set, `scripts/docker-local-build.sh` downloads the requested version/platform package first; otherwise it reuses matching zip packages already present in `output/download`
 - Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
-- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests `claude`, `openspec`, `opencode`, `codex`, and `code-server` inside the running container
+- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests `claude`, `openspec`, `skills`, `opencode`, `codex`, and `code-server` inside the running container
 
 ## Steam Linux desktop artifact verification
 
@@ -92,9 +92,9 @@ The unified runtime image bakes only the primary agent CLI baseline:
 - `opencode`
 - `codex`
 
-`openspec` remains in the image as the retained workflow tool for spec-driven changes, but it is documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
+`openspec` remains in the image as the retained workflow tool for spec-driven changes, and `skills` remains bundled as the retained skill-management CLI. Both are documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
 
-Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because skill management replaces its previous shipped-runtime workflow.
+Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because the bundled `skills` command replaces its previous shipped-runtime workflow.
 
 ## Omniroute unified provider bootstrap
 

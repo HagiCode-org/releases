@@ -113,9 +113,9 @@ These variables are used inside Docker containers to configure AI agents:
 - code-server is installed from the pinned standalone release archive and exposed on the default system PATH
 - Supported non-root runtime user: `hagicode` only
 - Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`
-- Retained workflow tool: `openspec`
+- Retained bundled tools: `openspec` for workflow automation and `skills` for skill management
 - UI-managed installs: `copilot`, `codebuddy`, and `qodercli`
-- Superseded helper: `uipro` is no longer shipped because skill management replaces its runtime role
+- Superseded helper: `uipro` is no longer shipped because the bundled `skills` command replaces its runtime role
 
 ### Omniroute Unified Provider Bootstrap
 

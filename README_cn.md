@@ -53,7 +53,7 @@ cp .env.secrets.local.example .env.secrets.local
 - 本地专用的明文凭据建议放在 `.env.secrets.local`；本地脚本会在 `.env.local` 之后加载它，`build.sh` / `build.ps1` 在非 GitHub Actions 环境下也会自动加载
 - 如果设置了 `AZURE_BLOB_SAS_URL`，`scripts/docker-local-build.sh` 会先下载指定版本和平台的包；否则会复用 `output/download` 中已经存在的 zip 包
 - 本地镜像构建仍然依赖 Docker Hub、`dot.net`、GitHub 与 npm 的出站访问，除非你的机器已经准备好了等价的镜像源或缓存
-- `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 `claude`、`openspec`、`opencode`、`codex` 与 `code-server` 是否都能在容器内执行
+- `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 `claude`、`openspec`、`skills`、`opencode`、`codex` 与 `code-server` 是否都能在容器内执行
 
 ## 容器运行时契约
 
@@ -69,9 +69,9 @@ cp .env.secrets.local.example .env.secrets.local
 - `opencode`
 - `codex`
 
-`openspec` 仍作为镜像保留的工作流工具存在，但它与主要 agent CLI 基线分开表述，避免再次把更多 provider CLI 误解为默认内置能力。
+`openspec` 仍作为镜像保留的工作流工具存在，`skills` 也作为镜像保留的技能管理 CLI 默认内置；它们都会与主要 agent CLI 基线分开表述，避免再次把更多 provider CLI 误解为默认内置能力。
 
-像 `copilot`、`codebuddy`、`qodercli` 这样的 provider CLI 现在都走 HagiCode UI 管理的安装路径，不再作为容器默认内置能力。`uipro` 也不再随镜像发布，因为对应能力已经由技能管理机制接管。
+像 `copilot`、`codebuddy`、`qodercli` 这样的 provider CLI 现在都走 HagiCode UI 管理的安装路径，不再作为容器默认内置能力。`uipro` 也不再随镜像发布，因为对应能力已经由内置的 `skills` 命令接管。
 
 ## Omniroute 统一 provider 引导
 

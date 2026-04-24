@@ -53,6 +53,21 @@ openspec --version
 openspec status
 ```
 
+### Skills CLI
+
+**Version**: Pinned through `skills`
+
+The Skills CLI is pre-installed in unified release images as the retained bundled skill-management tool. It is not part of the primary provider-facing agent CLI baseline.
+
+**Usage**:
+```bash
+# Check Skills CLI version
+skills --version
+
+# View Skills CLI help
+skills --help
+```
+
 ### Codex CLI
 
 **Purpose**: AI coding task execution and automation
@@ -81,7 +96,7 @@ The unified release image keeps only the primary agent CLI baseline baked into t
 - `opencode`
 - `codex`
 
-`openspec` is still retained in the image, but it is documented as workflow tooling rather than part of the primary provider-facing agent CLI baseline.
+`openspec` is still retained in the image as workflow tooling, and `skills` is retained as bundled skill-management tooling. They are documented separately from the primary provider-facing agent CLI baseline.
 
 ### UI-managed Provider CLIs
 
@@ -120,7 +135,7 @@ Runtime notes:
 The Docker base image pre-installs the retained workflow + runtime baseline:
 
 - Primary agent CLIs: `claude`, `opencode`, `codex`
-- Workflow tool: `openspec`
+- Bundled tools: `openspec` for workflow automation and `skills` for skill management
 - Runtime SSH client: `openssh-client`
 
 Container foundation notes:
@@ -130,7 +145,7 @@ Container foundation notes:
 - code-server is installed from the pinned standalone release archive and exposed on the default system PATH.
 - `/home/hagicode/.npm-global` remains the CLI prefix, and `hagicode` is the only supported non-root runtime user.
 
-Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because skill management replaces its previous runtime role.
+Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
 - **Base Images**:
   - `hagicode/hagicode:base` - AMD64 base image
   - `hagicode/hagicode:base-arm64` - ARM64 base image
