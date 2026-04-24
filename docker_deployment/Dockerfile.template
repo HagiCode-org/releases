@@ -4,6 +4,7 @@
 # CLI Tools Versions:
 # - Claude Code CLI: 2.1.71 (@anthropic-ai/claude-code@2.1.71)
 # - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
+# - Skills CLI: 1.5.1 (skills@1.5.1)
 # - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
 # - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
 # - OmniRoute: 3.6.9 (omniroute@3.6.9)
@@ -59,6 +60,7 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
     PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
     PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
+    PINNED_SKILLS_CLI_VERSION=1.5.1 \
     PINNED_OPENCODE_CLI_VERSION=1.2.25 \
     PINNED_CODEX_CLI_VERSION=0.112.0 \
     PINNED_OMNIROUTE_VERSION=3.6.9 \
@@ -111,6 +113,12 @@ RUN npm install -g "@anthropic-ai/claude-code@${PINNED_CLAUDE_CODE_CLI_VERSION}"
 # This stays separate from the primary agent CLI baseline below
 RUN npm install -g "@fission-ai/openspec@${PINNED_OPENSPEC_CLI_VERSION}" && \
     openspec --version || echo "OpenSpec CLI installed" && \
+    npm cache clean --force
+
+# Install Skills CLI as the retained bundled skill-management tool
+# This replaces the previous shipped UIPro helper role without expanding provider CLIs
+RUN npm install -g "skills@${PINNED_SKILLS_CLI_VERSION}" && \
+    skills --version && \
     npm cache clean --force
 
 # Install the retained primary agent CLI baseline
