@@ -49,5 +49,5 @@ while true; do
 done
 
 log "HTTP health check passed"
-run_compose exec -T hagicode bash -lc 'claude --version >/dev/null && openspec --version >/dev/null && opencode --version >/dev/null && codex --version >/dev/null && code-server --version >/dev/null'
+run_compose exec -T hagicode bash -lc 'claude --version >/dev/null && openspec --version >/dev/null && skills --version >/dev/null && opencode --version >/dev/null && codex --version >/dev/null && code-server --version >/dev/null'
 log "Bundled CLI smoke test passed"

@@ -95,6 +95,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("npm config set prefix '/home/hagicode/.npm-global'", dockerfile);
         Assert.Contains("PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71", dockerfile);
         Assert.Contains("PINNED_OPENSPEC_CLI_VERSION=1.2.0", dockerfile);
+        Assert.Contains("PINNED_SKILLS_CLI_VERSION=1.5.1", dockerfile);
         Assert.Contains("PINNED_OPENCODE_CLI_VERSION=1.2.25", dockerfile);
         Assert.Contains("PINNED_CODEX_CLI_VERSION=0.112.0", dockerfile);
         Assert.Contains("PINNED_OMNIROUTE_VERSION=3.6.9", dockerfile);
@@ -107,6 +108,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("openssh-client", dockerfile);
         Assert.Contains("Install runtime dependencies needed by the app, non-root startup, and SSH/Git access.", dockerfile);
         Assert.Contains("Install OpenSpec CLI as the retained workflow tool in the image baseline", dockerfile);
+        Assert.Contains("Install Skills CLI as the retained bundled skill-management tool", dockerfile);
         Assert.Contains("Install the retained primary agent CLI baseline", dockerfile);
         Assert.Contains("Provider CLIs outside claude/opencode/codex stay UI-managed at runtime", dockerfile);
 
@@ -114,6 +116,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("claude --version", dockerfile);
         Assert.Contains("npm install -g \"@fission-ai/openspec@${PINNED_OPENSPEC_CLI_VERSION}\"", dockerfile);
         Assert.Contains("openspec --version", dockerfile);
+        Assert.Contains("npm install -g \"skills@${PINNED_SKILLS_CLI_VERSION}\"", dockerfile);
+        Assert.Contains("skills --version", dockerfile);
         Assert.Contains("npm install -g \"opencode-ai@${PINNED_OPENCODE_CLI_VERSION}\"", dockerfile);
         Assert.Contains("opencode --version", dockerfile);
         Assert.Contains("npm install -g \"@openai/codex@${PINNED_CODEX_CLI_VERSION}\"", dockerfile);
@@ -400,6 +404,7 @@ public class DockerBuildIntegrationTests
         var readme = ReadRepoFile("README.md");
         var readmeCn = ReadRepoFile("README_cn.md");
         var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
+        var agentGuidance = ReadRepoFile("AGENTS.md");
 
         Assert.Contains("clean `debian:bookworm-slim` base", readme);
         Assert.Contains("Node.js 22 is installed through an image-managed NVM layout", readme);
@@ -411,8 +416,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`opencode`", readme);
         Assert.Contains("`codex`", readme);
         Assert.Contains("`openspec` remains in the image as the retained workflow tool", readme);
+        Assert.Contains("`skills` remains bundled as the retained skill-management CLI", readme);
         Assert.Contains("UI-managed install path", readme);
-        Assert.Contains("`uipro` is no longer part of the image", readme);
+        Assert.Contains("`uipro` is no longer part of the image because the bundled `skills` command replaces", readme);
         Assert.Contains("`openssh-client`", readme);
         Assert.Contains("`SSH_PRIVATE_KEY_PATH`", readme);
         Assert.Contains("`SSH_KNOWN_HOSTS_PATH`", readme);
@@ -450,6 +456,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("唯一受支持的非 root 运行用户是 `hagicode`", readmeCn);
         Assert.Contains("主要 agent CLI 基线", readmeCn);
         Assert.Contains("`openspec` 仍作为镜像保留的工作流工具存在", readmeCn);
+        Assert.Contains("`skills` 也作为镜像保留的技能管理 CLI 默认内置", readmeCn);
         Assert.Contains("`SSH_PRIVATE_KEY_PATH`", readmeCn);
         Assert.Contains("`SSH_KNOWN_HOSTS_PATH`", readmeCn);
         Assert.Contains("`SSH_STRICT_HOST_KEY_CHECKING`", readmeCn);
@@ -483,14 +490,18 @@ public class DockerBuildIntegrationTests
         Assert.Contains("qodercli --acp", environmentVariables);
         Assert.Contains("There is intentionally no `OPENCODE_CLI_VERSION`", environmentVariables);
         Assert.Contains("UI-managed installs: `copilot`, `codebuddy`, and `qodercli`", environmentVariables);
-        Assert.Contains("`uipro` is no longer shipped because skill management replaces its runtime role", environmentVariables);
+        Assert.Contains("`uipro` is no longer shipped because the bundled `skills` command replaces its runtime role", environmentVariables);
         Assert.Contains("Supported non-root runtime user: `hagicode` only", environmentVariables);
         Assert.Contains("the image does not rely on the upstream `node` user or `/home/node`", environmentVariables);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", environmentVariables);
         Assert.Contains("code-server is installed from the pinned standalone release archive", environmentVariables);
         Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`", environmentVariables);
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
-        Assert.Contains("Retained workflow tool: `openspec`", environmentVariables);
+        Assert.Contains("Retained bundled tools: `openspec` for workflow automation and `skills` for skill management", environmentVariables);
+        Assert.Contains("### Skills CLI", agentGuidance);
+        Assert.Contains("retained bundled skill-management tool", agentGuidance);
+        Assert.Contains("Bundled tools: `openspec` for workflow automation and `skills` for skill management", agentGuidance);
+        Assert.Contains("the bundled `skills` command replaces its previous runtime role", agentGuidance);
         Assert.Contains("Code Server Deployment Contract", environmentVariables);
         Assert.Contains("ACCEPT_EULA", environmentVariables);
         Assert.Contains("Builder EULA toggle", environmentVariables);
@@ -554,6 +565,7 @@ public class DockerBuildIntegrationTests
             "`opencode`",
             "`codex`",
             "`openspec`",
+            "`skills`",
             "Omniroute",
             "127.0.0.1:4060",
             "/app/data/omniroute",
@@ -615,6 +627,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("run_compose up -d", upScript);
         Assert.Contains("HTTP health check passed", testScript);
         Assert.Contains("openspec --version", testScript);
+        Assert.Contains("skills --version", testScript);
         Assert.Contains("DEFAULT_SECRETS_FILE", commonScript);
         Assert.Contains("Loaded local secrets override", commonScript);
         Assert.Contains("detect_host_platform()", commonScript);
