@@ -461,6 +461,24 @@ services:
       - ./runtime-secrets:/runtime-secrets:ro
 ```
 
+### Local Docker Compose Workflow
+
+For local image build and container smoke testing in this repository, use the checked-in local workflow instead of hand-writing an ad hoc compose file:
+
+```bash
+cp .env.local.example .env.local
+cp .env.secrets.local.example .env.secrets.local
+./scripts/docker-local-build.sh
+./scripts/docker-local-up.sh
+./scripts/docker-local-test.sh
+```
+
+- `docker-compose.local.yml` expects a locally built image tag from `HAGICODE_LOCAL_IMAGE`
+- `.env.local.example` captures the local-only knobs such as `HAGICODE_RELEASE_VERSION`, `HAGICODE_DOCKER_PLATFORM`, `AZURE_BLOB_SAS_URL`, and bind ports
+- `.env.secrets.local` is an optional gitignored plaintext override loaded after `.env.local`; use it for local-only SAS URLs, API keys, or registry credentials without changing GitHub Actions secrets
+- Local bind-mounted state lives under `./.local/hagicode/data` and `./.local/hagicode/saves`
+- The local Docker image build still reaches out to Docker Hub, `dot.net`, GitHub, and npm unless equivalent mirrors or caches are already available on the host
+
 ## Security Best Practices
 
 1. **Never commit secrets to git**: Always use GitHub Secrets or environment variables

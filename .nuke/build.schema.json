@@ -27,6 +27,7 @@
         "ConfigurationValidate",
         "DetermineBuildConfig",
         "DockerLogin",
+        "DockerPrepareLocalContext",
         "Download",
         "GitHubRelease",
         "PushToAliyunAcr",

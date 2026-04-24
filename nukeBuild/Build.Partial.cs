@@ -33,6 +33,15 @@ partial class Build
     IReadOnlyCollection<AbsolutePath> DownloadedZipFiles =>
         DownloadDirectory.GlobFiles("*.zip");
 
+    IReadOnlyCollection<AbsolutePath> GetDownloadedZipFilesForVersion(string version)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+
+        return DownloadedZipFiles
+            .Where(zip => Path.GetFileName(zip).Contains(version, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
     /// <summary>
     /// Gets the Docker deployment directory path
     /// </summary>

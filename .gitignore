@@ -215,7 +215,9 @@ wheels/
 # Environment
 .env
 .env.local
+.env.secrets.local
 .env.*.local
+.local/
 
 # OS
 .DS_Store

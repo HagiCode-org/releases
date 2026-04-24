@@ -19,6 +19,15 @@ DOTNET_CHANNEL="STS"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_NOLOGO=1
 
+LOCAL_SECRETS_FILE="${HAGICODE_LOCAL_SECRETS_FILE:-$SCRIPT_DIR/.env.secrets.local}"
+if [[ -z "${GITHUB_ACTIONS:-}" && -f "$LOCAL_SECRETS_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_SECRETS_FILE"
+    set +a
+    echo "Loaded local secrets override from $LOCAL_SECRETS_FILE"
+fi
+
 ###########################################################################
 # EXECUTION
 ###########################################################################

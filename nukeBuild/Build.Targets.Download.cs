@@ -63,5 +63,8 @@ partial class Build
     /// <summary>
     /// Gets the effective Azure Blob SAS URL from environment variable or parameter
     
-    string EffectiveAzureBlobSasUrl => Environment.GetEnvironmentVariable("NUGEX_AzureBlobSasUrl") ?? AzureBlobSasUrl;
+    string EffectiveAzureBlobSasUrl =>
+        Environment.GetEnvironmentVariable("NUGEX_AzureBlobSasUrl") ??
+        Environment.GetEnvironmentVariable("AZURE_BLOB_SAS_URL") ??
+        AzureBlobSasUrl;
 }

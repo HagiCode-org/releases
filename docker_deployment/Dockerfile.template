@@ -14,7 +14,7 @@
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
 # The application packages do NOT include runtime to reduce size.
 #
-# Template variables: {version}, {build_date}
+# Template variables: __HAGICODE_VERSION__, __HAGICODE_BUILD_DATE__
 
 # ============================================================================
 # Base Stage (internal, not pushed as independent image)
@@ -161,7 +161,7 @@ RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
 RUN rm -rf /var/tmp/* /tmp/* /var/cache/* /var/log/*
 
 # ============================================================================
-# Final Stage (pushed as hagicode:{version})
+# Final Stage (pushed as hagicode:__HAGICODE_VERSION__)
 # ============================================================================
 FROM base AS final
 
@@ -170,8 +170,8 @@ ARG build_date
 ARG TARGETARCH
 
 # Metadata labels
-LABEL version="${version}"
-LABEL build.date="${build_date}"
+LABEL version="__HAGICODE_VERSION__"
+LABEL build.date="__HAGICODE_BUILD_DATE__"
 LABEL description="HagiCode - AI-assisted development platform (framework-dependent deployment)"
 LABEL deployment.type="framework-dependent"
 

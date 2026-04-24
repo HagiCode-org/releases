@@ -18,6 +18,15 @@ partial class Build
     /// Gets the Docker entrypoint script path
     AbsolutePath DockerEntrypointScript => DockerDeploymentDirectory / "docker-entrypoint.sh";
 
+    /// Gets the pm2 ecosystem file path used by the runtime bootstrap
+    AbsolutePath DockerPm2EcosystemConfig => DockerDeploymentDirectory / "ecosystem.config.cjs";
+
+    /// Gets the Omniroute bootstrap helper script path
+    AbsolutePath DockerOmnirouteBootstrapScript => DockerDeploymentDirectory / "omniroute-bootstrap.mjs";
+
+    /// Gets the ready-gate helper script path
+    AbsolutePath DockerWaitForReadyScript => DockerDeploymentDirectory / "wait-for-ready.sh";
+
     /// Gets the extracted package directory for Docker build
     AbsolutePath DockerBuildContext => OutputDirectory / "docker-build-context";
 
@@ -86,26 +95,21 @@ partial class Build
 
         // Copy entrypoint script
         File.Copy(DockerEntrypointScript, DockerBuildContext / "docker-entrypoint.sh", true);
+        File.Copy(DockerPm2EcosystemConfig, DockerBuildContext / "ecosystem.config.cjs", true);
+        File.Copy(DockerOmnirouteBootstrapScript, DockerBuildContext / "omniroute-bootstrap.mjs", true);
+        File.Copy(DockerWaitForReadyScript, DockerBuildContext / "wait-for-ready.sh", true);
 
-        // Extract and copy lib directory for each platform BEFORE generating Dockerfile
-        // This ensures directories exist when Dockerfile references them
-        // For multi-arch builds, extract to platform-specific subdirectories
-        // For single platform, extract directly to lib/
-        if (isMultiPlatform)
+        // Extract and copy lib directory for each platform BEFORE generating Dockerfile.
+        // The template consumes lib-${TARGETARCH}, so even single-platform builds must
+        // remain platform-aware when a platform list is supplied.
+        if (platforms is { Count: > 0 })
         {
-            // Multi-arch build: extract each platform to its own subdirectory
-            Log.Information("Multi-platform build: extracting to platform-specific lib directories");
-            if (platforms == null || platforms.Count == 0)
-            {
-                Log.Warning("isMultiPlatform is true but platforms list is empty, defaulting to both platforms");
-                platforms = new List<string> { "linux/amd64", "linux/arm64" };
-            }
-
+            Log.Information("Platform-aware build: extracting to platform-specific lib directories");
             foreach (var platform in platforms)
             {
                 var platformName = GetPlatformName(platform);
                 var platformDir = DockerBuildContext / $"lib-{platformName}";
-                ExtractZipFiles(platformDir, platform);
+                ExtractZipFiles(platformDir, version, platform);
                 Log.Information("Extracted platform {Platform} to {Directory}", platform, platformDir);
             }
 
@@ -118,11 +122,10 @@ partial class Build
         }
         else
         {
-            // Single platform build: extract directly to lib/
-            Log.Information("Single-platform build: extracting to default lib directory");
+            // Backward-compatible fallback when a caller does not specify explicit platforms.
+            Log.Information("No explicit platforms provided: extracting to default lib directory");
             var extractedDir = DockerBuildContext / "lib";
-            var platform = platforms?.FirstOrDefault() ?? "linux/amd64";
-            ExtractZipFiles(extractedDir, platform);
+            ExtractZipFiles(extractedDir, version, platform: null);
         }
 
         // Generate unified Dockerfile from template AFTER directories are created
@@ -155,8 +158,8 @@ partial class Build
 
         var template = File.ReadAllText(DockerAppTemplateDockerfile);
         var dockerfile = template
-            .Replace("{version}", version)
-            .Replace("{build_date}", BuildDate);
+            .Replace("__HAGICODE_VERSION__", version)
+            .Replace("__HAGICODE_BUILD_DATE__", BuildDate);
 
         File.WriteAllText(outputPath, dockerfile);
         Log.Information("Dockerfile generated at: {Path}", outputPath);
@@ -177,30 +180,38 @@ partial class Build
 
     /// Extracts downloaded zip files to the target directory
     /// <param name="targetDirectory">Target directory for extraction</param>
+    /// <param name="version">Release version to filter by</param>
     /// <param name="platform">Docker platform to filter by (e.g., "linux/amd64")</param>
-    void ExtractZipFiles(AbsolutePath targetDirectory, string? platform = null)
+    void ExtractZipFiles(AbsolutePath targetDirectory, string version, string? platform = null)
     {
         targetDirectory.CreateOrCleanDirectory();
 
+        var zipFilesForVersion = GetDownloadedZipFilesForVersion(version);
         IEnumerable<AbsolutePath> zipFilesToExtract;
 
         if (!string.IsNullOrEmpty(platform))
         {
-            // Filter ZIP files by platform
+            // Filter ZIP files by version and platform
             var platformSuffix = GetPlatformZipSuffix(platform);
-            zipFilesToExtract = DownloadedZipFiles
-                .Where(zip => zip.ToString().Contains(platformSuffix));
+            zipFilesToExtract = zipFilesForVersion
+                .Where(zip => Path.GetFileName(zip).Contains(platformSuffix, StringComparison.OrdinalIgnoreCase));
 
             if (!zipFilesToExtract.Any())
             {
-                Log.Warning("No ZIP files found for platform: {Platform}", platform);
+                Log.Warning("No ZIP files found for version {Version} and platform {Platform}", version, platform);
                 return;
             }
         }
         else
         {
-            // Extract all ZIP files (backward compatibility)
-            zipFilesToExtract = DownloadedZipFiles;
+            // Extract all ZIP files for the requested version (backward compatibility)
+            zipFilesToExtract = zipFilesForVersion;
+        }
+
+        if (!zipFilesToExtract.Any())
+        {
+            Log.Warning("No ZIP files found for version {Version}", version);
+            return;
         }
 
         foreach (var zipFile in zipFilesToExtract)

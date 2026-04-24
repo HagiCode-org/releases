@@ -34,6 +34,27 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 
 Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release.
 
+## Local container build and test
+
+The repository now also ships a local `docker compose` workflow that reuses the existing Nuke-driven build-context generation instead of bypassing it:
+
+```bash
+cp .env.local.example .env.local
+cp .env.secrets.local.example .env.secrets.local
+./scripts/docker-local-build.sh
+./scripts/docker-local-up.sh
+./scripts/docker-local-test.sh
+./scripts/docker-local-logs.sh
+./scripts/docker-local-down.sh
+```
+
+- `docker-compose.local.yml` uses the local image tag from `HAGICODE_LOCAL_IMAGE` and publishes the app to `127.0.0.1:5000` by default
+- Local persistence stays under `./.local/hagicode/data` and `./.local/hagicode/saves`
+- Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
+- When `AZURE_BLOB_SAS_URL` is set, `scripts/docker-local-build.sh` downloads the requested version/platform package first; otherwise it reuses matching zip packages already present in `output/download`
+- Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
+- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests `claude`, `openspec`, `opencode`, `codex`, and `code-server` inside the running container
+
 ## Steam Linux desktop artifact verification
 
 When a Linux desktop package bundles the optional portable payload under `resources/extra/portable-fixed/current`, keep the Steam startup contract aligned with the desktop bootstrap fix:

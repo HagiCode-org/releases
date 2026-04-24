@@ -23,6 +23,32 @@ $DotNetChannel = "STS"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = 1
 $env:DOTNET_NOLOGO = 1
 
+$LocalSecretsFile = if ($env:HAGICODE_LOCAL_SECRETS_FILE) { $env:HAGICODE_LOCAL_SECRETS_FILE } else { "$PSScriptRoot\.env.secrets.local" }
+if (-not $env:GITHUB_ACTIONS -and (Test-Path $LocalSecretsFile)) {
+    Get-Content $LocalSecretsFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line.Length -eq 0 -or $line.StartsWith("#")) {
+            return
+        }
+
+        $separatorIndex = $line.IndexOf("=")
+        if ($separatorIndex -lt 1) {
+            return
+        }
+
+        $name = $line.Substring(0, $separatorIndex).Trim()
+        $value = $line.Substring($separatorIndex + 1).Trim()
+
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        [Environment]::SetEnvironmentVariable($name, $value)
+    }
+
+    Write-Output "Loaded local secrets override from $LocalSecretsFile"
+}
+
 ###########################################################################
 # EXECUTION
 ###########################################################################

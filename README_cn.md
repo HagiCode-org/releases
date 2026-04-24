@@ -34,6 +34,27 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 准备真实发布时，请结合 `ENVIRONMENT_VARIABLES.md` 配置对应的凭据与 Registry 参数。
 
+## 本地容器构建与测试
+
+仓库根目录现在额外提供了一套面向本地调试的 `docker compose` 工作流，不会绕开现有 Nuke build context 生成逻辑：
+
+```bash
+cp .env.local.example .env.local
+cp .env.secrets.local.example .env.secrets.local
+./scripts/docker-local-build.sh
+./scripts/docker-local-up.sh
+./scripts/docker-local-test.sh
+./scripts/docker-local-logs.sh
+./scripts/docker-local-down.sh
+```
+
+- `docker-compose.local.yml` 使用本地镜像标签 `HAGICODE_LOCAL_IMAGE`，默认把应用发布到 `127.0.0.1:5000`
+- 本地持久化目录固定落在 `./.local/hagicode/data` 与 `./.local/hagicode/saves`
+- 本地专用的明文凭据建议放在 `.env.secrets.local`；本地脚本会在 `.env.local` 之后加载它，`build.sh` / `build.ps1` 在非 GitHub Actions 环境下也会自动加载
+- 如果设置了 `AZURE_BLOB_SAS_URL`，`scripts/docker-local-build.sh` 会先下载指定版本和平台的包；否则会复用 `output/download` 中已经存在的 zip 包
+- 本地镜像构建仍然依赖 Docker Hub、`dot.net`、GitHub 与 npm 的出站访问，除非你的机器已经准备好了等价的镜像源或缓存
+- `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 `claude`、`openspec`、`opencode`、`codex` 与 `code-server` 是否都能在容器内执行
+
 ## 容器运行时契约
 
 统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 22 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而通过 npm 交付的内置 CLI 仍安装在 `/home/hagicode/.npm-global`。

@@ -254,12 +254,18 @@ public class DockerBuildIntegrationTests
         var ecosystem = ReadRepoFile("docker_deployment/ecosystem.config.cjs");
         var waitForReady = ReadRepoFile("docker_deployment/wait-for-ready.sh");
         var bootstrap = ReadRepoFile("docker_deployment/omniroute-bootstrap.mjs");
+        var appImageTarget = ReadRepoFile("nukeBuild/Build.Targets.Docker.AppImage.cs");
 
         Assert.Contains("name: \"omniroute\"", ecosystem);
         Assert.Contains("name: \"hagicode-app\"", ecosystem);
         Assert.Contains("script: \"omniroute\"", ecosystem);
         Assert.Contains("script: path.join(__dirname, \"wait-for-ready.sh\")", ecosystem);
         Assert.Contains("HAGICODE_APP_COMMAND is required for pm2 startup", ecosystem);
+
+        Assert.Contains("File.Copy(DockerPm2EcosystemConfig, DockerBuildContext / \"ecosystem.config.cjs\", true);", appImageTarget);
+        Assert.Contains("File.Copy(DockerOmnirouteBootstrapScript, DockerBuildContext / \"omniroute-bootstrap.mjs\", true);", appImageTarget);
+        Assert.Contains("File.Copy(DockerWaitForReadyScript, DockerBuildContext / \"wait-for-ready.sh\", true);", appImageTarget);
+        Assert.Contains("platform-aware when a platform list is supplied", appImageTarget);
 
         Assert.Contains("READY_FILE=\"${HAGICODE_PM2_READY_FILE:?HAGICODE_PM2_READY_FILE is required}\"", waitForReady);
         Assert.Contains("HAGICODE_PM2_READY_TIMEOUT_SECONDS", waitForReady);
@@ -568,6 +574,89 @@ public class DockerBuildIntegrationTests
         Assert.Contains("`127.0.0.1:4060`", readmeCn);
         Assert.Contains("`/app/data/omniroute`", readmeCn);
         Assert.Equal(0, new[] { readme, environmentVariables }.Count(doc => doc.Contains("`copilot`") && doc.Contains("default built-in agent CLI")));
+    }
+
+    [Fact]
+    public void LocalDockerComposeWorkflow_ShouldShip_WithScriptsAndDocs()
+    {
+        var compose = ReadRepoFile("docker-compose.local.yml");
+        var envTemplate = ReadRepoFile(".env.local.example");
+        var envSecretsTemplate = ReadRepoFile(".env.secrets.local.example");
+        var buildScript = ReadRepoFile("scripts/docker-local-build.sh");
+        var upScript = ReadRepoFile("scripts/docker-local-up.sh");
+        var testScript = ReadRepoFile("scripts/docker-local-test.sh");
+        var commonScript = ReadRepoFile("scripts/docker-local-common.sh");
+        var buildWrapper = ReadRepoFile("build.sh");
+        var buildWrapperPs = ReadRepoFile("build.ps1");
+        var readme = ReadRepoFile("README.md");
+        var readmeCn = ReadRepoFile("README_cn.md");
+        var environmentVariables = ReadRepoFile("ENVIRONMENT_VARIABLES.md");
+
+        Assert.Contains("name: hagicode-local", compose);
+        Assert.Contains("image: ${HAGICODE_LOCAL_IMAGE:-hagicode-local:dev}", compose);
+        Assert.Contains(".local/hagicode/data:/app/data", compose);
+        Assert.Contains(".local/hagicode/saves:/app/saves", compose);
+        Assert.Contains("OMNIROUTE_ENABLE_BOOTSTRAP: ${OMNIROUTE_ENABLE_BOOTSTRAP:-true}", compose);
+        Assert.Contains("ACCEPT_EULA: ${ACCEPT_EULA:-Y}", compose);
+
+        Assert.Contains("HAGICODE_RELEASE_VERSION=", envTemplate);
+        Assert.Contains("HAGICODE_DOCKER_PLATFORM=", envTemplate);
+        Assert.Contains("AZURE_BLOB_SAS_URL=", envTemplate);
+        Assert.Contains("ACCEPT_EULA=Y", envTemplate);
+        Assert.Contains("OMNIROUTE_ENABLE_BOOTSTRAP=true", envTemplate);
+        Assert.Contains("AZURE_BLOB_SAS_URL=", envSecretsTemplate);
+        Assert.Contains("CODEX_API_KEY=", envSecretsTemplate);
+        Assert.Contains("NUGEX_AzureAcrPassword=", envSecretsTemplate);
+
+        Assert.Contains("DockerPrepareLocalContext", buildScript);
+        Assert.Contains("--secrets-file", buildScript);
+        Assert.Contains("docker buildx build", buildScript);
+        Assert.Contains("--secrets-file", upScript);
+        Assert.Contains("run_compose up -d", upScript);
+        Assert.Contains("HTTP health check passed", testScript);
+        Assert.Contains("openspec --version", testScript);
+        Assert.Contains("DEFAULT_SECRETS_FILE", commonScript);
+        Assert.Contains("Loaded local secrets override", commonScript);
+        Assert.Contains("detect_host_platform()", commonScript);
+        Assert.Contains("run_compose()", commonScript);
+        Assert.Contains("output/download/*${HAGICODE_RELEASE_VERSION}*${download_platform}*.zip", commonScript);
+        Assert.Contains(".env.secrets.local", buildWrapper);
+        Assert.Contains("Loaded local secrets override", buildWrapper);
+        Assert.Contains(".env.secrets.local", buildWrapperPs);
+        Assert.Contains("Loaded local secrets override", buildWrapperPs);
+        Assert.Contains("GetDownloadedZipFilesForVersion", ReadRepoFile("nukeBuild/Build.Partial.cs"));
+        Assert.Contains("ExtractZipFiles(platformDir, version, platform)", ReadRepoFile("nukeBuild/Build.Targets.Docker.AppImage.cs"));
+        Assert.Contains("No downloaded zip packages for version", ReadRepoFile("nukeBuild/Build.Targets.Docker.Local.cs"));
+
+        Assert.Contains("docker-compose.local.yml", readme);
+        Assert.Contains("docker-local-build.sh", readme);
+        Assert.Contains("docker-local-test.sh", readme);
+        Assert.Contains(".env.secrets.local.example", readme);
+        Assert.Contains("Docker Hub", readme);
+        Assert.Contains("docker-compose.local.yml", readmeCn);
+        Assert.Contains("docker-local-build.sh", readmeCn);
+        Assert.Contains("docker-local-test.sh", readmeCn);
+        Assert.Contains(".env.secrets.local.example", readmeCn);
+        Assert.Contains("Docker Hub", readmeCn);
+        Assert.Contains("Local Docker Compose Workflow", environmentVariables);
+        Assert.Contains(".env.local.example", environmentVariables);
+        Assert.Contains(".env.secrets.local", environmentVariables);
+        Assert.Contains("Docker Hub", environmentVariables);
+        Assert.Contains("log_local_build_network_requirements", buildScript);
+    }
+
+    [Fact]
+    public void DockerfileTemplateVersionPlaceholders_ShouldNotCollide_WithDockerVariableSyntax()
+    {
+        var dockerfileTemplate = ReadRepoFile("docker_deployment/Dockerfile.template");
+        var appImageTarget = ReadRepoFile("nukeBuild/Build.Targets.Docker.AppImage.cs");
+
+        Assert.Contains("LABEL version=\"__HAGICODE_VERSION__\"", dockerfileTemplate);
+        Assert.Contains("LABEL build.date=\"__HAGICODE_BUILD_DATE__\"", dockerfileTemplate);
+        Assert.DoesNotContain("LABEL version=\"${version}\"", dockerfileTemplate);
+        Assert.DoesNotContain("LABEL build.date=\"${build_date}\"", dockerfileTemplate);
+        Assert.Contains(".Replace(\"__HAGICODE_VERSION__\", version)", appImageTarget);
+        Assert.Contains(".Replace(\"__HAGICODE_BUILD_DATE__\", BuildDate)", appImageTarget);
     }
 
     [Fact]

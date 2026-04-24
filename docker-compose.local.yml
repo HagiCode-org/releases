@@ -1,0 +1,41 @@
+name: hagicode-local
+
+services:
+  hagicode:
+    image: ${HAGICODE_LOCAL_IMAGE:-hagicode-local:dev}
+    container_name: ${HAGICODE_LOCAL_CONTAINER_NAME:-hagicode-local}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA:-Y}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: ${ASPNETCORE_URLS:-http://+:5000}
+      CLAUDE_HOST_CONFIG_ENABLED: ${CLAUDE_HOST_CONFIG_ENABLED:-false}
+      OMNIROUTE_ENABLE_BOOTSTRAP: ${OMNIROUTE_ENABLE_BOOTSTRAP:-true}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      VsCodeServer__CodeServerAuthMode: ${VSCODE_SERVER_AUTH_MODE:-none}
+      VsCodeServer__CodeServerDefaultHost: ${VSCODE_SERVER_HOST:-0.0.0.0}
+      VsCodeServer__CodeServerDefaultPort: ${VSCODE_SERVER_PORT:-36529}
+      CODE_SERVER_PASSWORD: ${CODE_SERVER_PASSWORD:-}
+      CODE_SERVER_HASHED_PASSWORD: ${CODE_SERVER_HASHED_PASSWORD:-}
+      ANTHROPIC_URL: ${ANTHROPIC_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      CODEX_BASE_URL: ${CODEX_BASE_URL:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-}
+      OPENCODE_API_BASE_URL: ${OPENCODE_API_BASE_URL:-}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      SSH_PRIVATE_KEY_PATH: ${SSH_PRIVATE_KEY_PATH:-}
+      SSH_KNOWN_HOSTS_PATH: ${SSH_KNOWN_HOSTS_PATH:-}
+      SSH_STRICT_HOST_KEY_CHECKING: ${SSH_STRICT_HOST_KEY_CHECKING:-accept-new}
+    ports:
+      - ${HAGICODE_HTTP_BIND:-127.0.0.1}:${HAGICODE_HTTP_PORT:-5000}:5000
+      - ${HAGICODE_CODE_SERVER_BIND:-127.0.0.1}:${VSCODE_SERVER_PORT:-36529}:${VSCODE_SERVER_PORT:-36529}
+    volumes:
+      - ./.local/hagicode/data:/app/data
+      - ./.local/hagicode/saves:/app/saves
+      - ./.local/hagicode/claude:/claude-mount
+      - ./.local/hagicode/runtime-secrets:/runtime-secrets:ro
