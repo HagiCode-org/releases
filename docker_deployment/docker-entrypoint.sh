@@ -10,6 +10,7 @@ HAGICODE_HOME="/home/hagicode"
 HAGICODE_CLAUDE_DIR="${HAGICODE_HOME}/.claude"
 HAGICODE_CLAUDE_STATE_FILE="${HAGICODE_HOME}/.claude.json"
 HAGICODE_NPM_PREFIX="${HAGICODE_HOME}/.npm-global"
+HAGISCRIPT_MANAGED_RUNTIME="${HAGISCRIPT_MANAGED_RUNTIME:-${HAGICODE_HOME}/.hagiscript/node-runtime}"
 HAGICODE_SSH_DIR="${HAGICODE_HOME}/.ssh"
 HAGICODE_IMPORTED_SSH_KEY="${HAGICODE_SSH_DIR}/imported_key"
 HAGICODE_IMPORTED_KNOWN_HOSTS="${HAGICODE_SSH_DIR}/known_hosts"
@@ -44,7 +45,7 @@ PM2_RUNTIME_PID=""
 
 export HOME="$HAGICODE_HOME"
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HAGICODE_NPM_PREFIX}"
-export PATH="${HAGICODE_NPM_PREFIX}/bin:${PATH}"
+export PATH="${HAGICODE_NPM_PREFIX}/bin:${HAGISCRIPT_MANAGED_RUNTIME}/bin:${PATH}"
 
 run_as_hagicode() {
     gosu "$HAGICODE_USER" env \
@@ -53,6 +54,7 @@ run_as_hagicode() {
         LOGNAME="$HAGICODE_USER" \
         PATH="$PATH" \
         NPM_CONFIG_PREFIX="$HAGICODE_NPM_PREFIX" \
+        HAGISCRIPT_MANAGED_RUNTIME="$HAGISCRIPT_MANAGED_RUNTIME" \
         "$@"
 }
 
@@ -63,6 +65,7 @@ exec_as_hagicode() {
         LOGNAME="$HAGICODE_USER" \
         PATH="$PATH" \
         NPM_CONFIG_PREFIX="$HAGICODE_NPM_PREFIX" \
+        HAGISCRIPT_MANAGED_RUNTIME="$HAGISCRIPT_MANAGED_RUNTIME" \
         "$@"
 }
 
@@ -70,6 +73,7 @@ ensure_hagicode_runtime_paths() {
     mkdir -p \
         "$HAGICODE_CLAUDE_DIR" \
         "$HAGICODE_NPM_PREFIX" \
+        "$(dirname "$HAGISCRIPT_MANAGED_RUNTIME")" \
         "$HAGICODE_SSH_DIR" \
         "$HAGICODE_CODE_SERVER_CONFIG_DIR" \
         "$HAGICODE_CODE_SERVER_CACHE_DIR" \
@@ -83,6 +87,7 @@ ensure_hagicode_runtime_paths() {
     chown "$HAGICODE_USER:$HAGICODE_GROUP" "$HAGICODE_HOME" "$HAGICODE_APP_DIR"
     chown -R "$HAGICODE_USER:$HAGICODE_GROUP" \
         "$HAGICODE_CLAUDE_DIR" \
+        "$(dirname "$HAGISCRIPT_MANAGED_RUNTIME")" \
         "$HAGICODE_SSH_DIR" \
         "$HAGICODE_CODE_SERVER_CONFIG_DIR" \
         "$HAGICODE_CODE_SERVER_CACHE_DIR" \
@@ -509,61 +514,37 @@ EOF
     echo "⚠ Warning: No Claude configuration available after runtime routing"
 }
 
-install_cli_override_if_needed() {
-    local display_name="$1"
-    local package_name="$2"
-    local command_name="$3"
-    local pinned_version="$4"
-    local override_version="$5"
-    local override_env_name="$6"
+verify_hagiscript_synced_toolchain() {
+    local required_commands=(
+        hagiscript
+        claude
+        openspec
+        skills
+        opencode
+        codex
+        omniroute
+        pm2
+        pm2-runtime
+        code-server
+    )
 
-    if [ -z "$override_version" ]; then
-        echo "✓ ${display_name} using pinned version: ${pinned_version}"
-        return 0
-    fi
+    for command_name in "${required_commands[@]}"; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            fail_startup "${command_name} is not available on PATH; rebuild the image with hagiscript npm-sync completed"
+        fi
+    done
 
-    if [ "$override_version" = "$pinned_version" ]; then
-        echo "✓ ${display_name} override matches pinned version (${pinned_version}); skipping reinstall."
-        return 0
-    fi
+    run_as_hagicode hagiscript --version >/dev/null
+    run_as_hagicode claude --version >/dev/null
+    run_as_hagicode openspec --version >/dev/null
+    run_as_hagicode skills --version >/dev/null
+    run_as_hagicode opencode --version >/dev/null
+    run_as_hagicode codex --version >/dev/null
+    run_as_hagicode omniroute --help >/dev/null
+    run_as_hagicode pm2 --version >/dev/null
+    run_as_hagicode code-server --version >/dev/null
 
-    echo "✓ ${display_name} version override detected: ${override_env_name}=${override_version}"
-    run_as_hagicode npm install -g "${package_name}@${override_version}"
-    run_as_hagicode "${command_name}" --version >/dev/null
-    run_as_hagicode npm cache clean --force >/dev/null 2>&1 || true
-}
-
-install_cli_overrides() {
-    PINNED_CLAUDE_CODE_CLI_VERSION="${PINNED_CLAUDE_CODE_CLI_VERSION:-2.1.71}"
-    PINNED_OPENSPEC_CLI_VERSION="${PINNED_OPENSPEC_CLI_VERSION:-1.2.0}"
-    PINNED_OPENCODE_CLI_VERSION="${PINNED_OPENCODE_CLI_VERSION:-1.2.25}"
-    PINNED_CODEX_CLI_VERSION="${PINNED_CODEX_CLI_VERSION:-0.112.0}"
-
-    install_cli_override_if_needed \
-        "Claude Code CLI" \
-        "@anthropic-ai/claude-code" \
-        "claude" \
-        "$PINNED_CLAUDE_CODE_CLI_VERSION" \
-        "${CLAUDE_CODE_CLI_VERSION:-}" \
-        "CLAUDE_CODE_CLI_VERSION"
-
-    install_cli_override_if_needed \
-        "OpenSpec CLI" \
-        "@fission-ai/openspec" \
-        "openspec" \
-        "$PINNED_OPENSPEC_CLI_VERSION" \
-        "${OPENSPEC_CLI_VERSION:-}" \
-        "OPENSPEC_CLI_VERSION"
-
-    echo "✓ OpenCode CLI using pinned image version: ${PINNED_OPENCODE_CLI_VERSION} (command: opencode)"
-
-    install_cli_override_if_needed \
-        "Codex CLI" \
-        "@openai/codex" \
-        "codex" \
-        "$PINNED_CODEX_CLI_VERSION" \
-        "${CODEX_CLI_VERSION:-}" \
-        "CODEX_CLI_VERSION"
+    echo "✓ HagiScript-synced image toolchain verified"
 
     if [ -n "${QODER_PERSONAL_ACCESS_TOKEN:-}" ]; then
         echo "✓ Qoder runtime token detected: QODER_PERSONAL_ACCESS_TOKEN (masked)"
@@ -616,7 +597,7 @@ main() {
     validate_accept_eula
     configure_ssh_private_key_if_needed
     configure_code_server_runtime_if_needed
-    install_cli_overrides
+    verify_hagiscript_synced_toolchain
     resolve_application_command
     capture_upstream_provider_inputs
     normalize_omniroute_runtime_contract

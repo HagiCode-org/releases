@@ -1,15 +1,12 @@
 # HagiCode Unified Docker Image
 # Multi-stage build combining base tools and application code
 #
-# CLI Tools Versions:
-# - Claude Code CLI: 2.1.71 (@anthropic-ai/claude-code@2.1.71)
-# - OpenSpec CLI: 1.2.0 (@fission-ai/openspec@1.2.0)
-# - Skills CLI: 1.5.1 (skills@1.5.1)
-# - OpenCode CLI: 1.2.25 (opencode-ai@1.2.25)
-# - Codex CLI: 0.112.0 (@openai/codex@0.112.0)
-# - OmniRoute: 3.6.9 (omniroute@3.6.9)
+# CLI Tools Baseline:
+# - HagiScript bootstrap: 0.1.0 (@hagicode/hagiscript@0.1.0)
+# - HagiScript npm-sync manifest: docker_deployment/hagiscript-sync-manifest.json
+# - Optional agent CLI IDs: claude-code, fission-openspec, opencode, codex
+# - Mandatory HagiScript tool sync: skills, omniroute, code-server
 # - pm2: 6.0.14 (pm2@6.0.14)
-# - code-server: 4.115.0 (standalone release archive)
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -58,15 +55,10 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     NODE_VERSION=22 \
     HOME=/home/hagicode \
     NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
-    PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71 \
-    PINNED_OPENSPEC_CLI_VERSION=1.2.0 \
-    PINNED_SKILLS_CLI_VERSION=1.5.1 \
-    PINNED_OPENCODE_CLI_VERSION=1.2.25 \
-    PINNED_CODEX_CLI_VERSION=0.112.0 \
-    PINNED_OMNIROUTE_VERSION=3.6.9 \
-    PINNED_PM2_VERSION=6.0.14 \
-    PINNED_CODE_SERVER_VERSION=4.115.0
-ENV PATH="/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
+    HAGISCRIPT_NPM_SYNC_MANIFEST=/app/bootstrap/hagiscript-sync-manifest.json \
+    HAGISCRIPT_MANAGED_RUNTIME=/home/hagicode/.hagiscript/node-runtime \
+    PINNED_HAGISCRIPT_VERSION=0.1.0
+ENV PATH="/home/hagicode/.npm-global/bin:/home/hagicode/.hagiscript/node-runtime/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
 # Install Node.js 22 through a shared, image-managed NVM layout and expose it on PATH
 # Clear the npm prefix only for the bootstrap layer so nvm install can run cleanly.
@@ -93,7 +85,7 @@ RUN mkdir -p "$NVM_DIR" && \
 # -o allows groupadd/useradd to succeed even if GID/UID already exists
 RUN groupadd -o -g 1000 hagicode && \
     useradd -o -u 1000 -g 1000 -s /bin/bash -m hagicode && \
-    mkdir -p /home/hagicode/.claude /home/hagicode/.npm-global && \
+    mkdir -p /home/hagicode/.claude /home/hagicode/.npm-global /home/hagicode/.hagiscript && \
     chown -R hagicode:hagicode /home/hagicode
 
 # Switch to hagicode user for npm installations
@@ -103,64 +95,29 @@ WORKDIR /home/hagicode
 # Configure npm to install global packages in user's home directory
 RUN npm config set prefix '/home/hagicode/.npm-global'
 
-# Install Claude Code CLI via npm as non-root user
-# This enables AI-assisted development features within container
-RUN npm install -g "@anthropic-ai/claude-code@${PINNED_CLAUDE_CODE_CLI_VERSION}" && \
-    claude --version || echo "Claude Code CLI installed" && \
-    npm cache clean --force
+# Copy the release-owned HagiScript sync input before running the build-time tool sync.
+COPY --chown=hagicode:hagicode hagiscript-sync-manifest.json /app/bootstrap/hagiscript-sync-manifest.json
 
-# Install OpenSpec CLI as the retained workflow tool in the image baseline
-# This stays separate from the primary agent CLI baseline below
-RUN npm install -g "@fission-ai/openspec@${PINNED_OPENSPEC_CLI_VERSION}" && \
-    openspec --version || echo "OpenSpec CLI installed" && \
-    npm cache clean --force
-
-# Install Skills CLI as the retained bundled skill-management tool
-# This replaces the previous shipped UIPro helper role without expanding provider CLIs
-RUN npm install -g "skills@${PINNED_SKILLS_CLI_VERSION}" && \
+# Install pinned HagiScript first, then delegate the retained baked toolchain to npm-sync.
+RUN npm install -g "@hagicode/hagiscript@${PINNED_HAGISCRIPT_VERSION}" && \
+    hagiscript --version && \
+    hagiscript npm-sync \
+        --managed-runtime "${HAGISCRIPT_MANAGED_RUNTIME}" \
+        --manifest "${HAGISCRIPT_NPM_SYNC_MANIFEST}" && \
+    claude --version && \
+    openspec --version && \
     skills --version && \
-    npm cache clean --force
-
-# Install the retained primary agent CLI baseline
-# Provider CLIs outside claude/opencode/codex stay UI-managed at runtime
-# OpenCode serves the shared HTTP runtime baseline
-# The npm package is opencode-ai while the shipped command remains opencode
-RUN npm install -g "opencode-ai@${PINNED_OPENCODE_CLI_VERSION}" && \
     opencode --version && \
-    npm cache clean --force
-
-# Codex remains part of the baked primary agent CLI baseline
-RUN npm install -g "@openai/codex@${PINNED_CODEX_CLI_VERSION}" && \
     codex --version && \
-    npm cache clean --force
-
-# OmniRoute and pm2 provide the unified local provider proxy and shared process supervision layer
-RUN npm install -g "omniroute@${PINNED_OMNIROUTE_VERSION}" "pm2@${PINNED_PM2_VERSION}" && \
     omniroute --help >/dev/null && \
     pm2 --version && \
     command -v pm2-runtime >/dev/null && \
+    code-server --version && \
     npm cache clean --force
 
 # Switch back to root for final setup
 USER root
 WORKDIR /app
-
-# code-server is bundled from the pinned standalone release so npm prefix settings
-# do not affect the browser IDE runtime contract.
-RUN set -eux; \
-    case "$(dpkg --print-architecture)" in \
-        amd64) CODE_SERVER_ARCH="amd64" ;; \
-        arm64) CODE_SERVER_ARCH="arm64" ;; \
-        *) echo "Unsupported architecture for code-server: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac; \
-    CODE_SERVER_INSTALL_DIR="/usr/local/lib/code-server"; \
-    wget -qO /tmp/code-server.tar.gz "https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz"; \
-    rm -rf "${CODE_SERVER_INSTALL_DIR}"; \
-    mkdir -p "${CODE_SERVER_INSTALL_DIR}"; \
-    tar -xzf /tmp/code-server.tar.gz -C "${CODE_SERVER_INSTALL_DIR}" --strip-components=1; \
-    ln -sf "${CODE_SERVER_INSTALL_DIR}/bin/code-server" /usr/local/bin/code-server; \
-    code-server --version; \
-    rm -f /tmp/code-server.tar.gz
 
 # Clean up npm global cache to reduce image size
 RUN rm -rf /home/hagicode/.npm/_logs /tmp/*
