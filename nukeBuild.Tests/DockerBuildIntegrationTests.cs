@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using System.Text.Json;
 using Xunit;
 
 namespace NukeBuild.Tests;
@@ -35,6 +36,11 @@ public class DockerBuildIntegrationTests
     {
         var fullPath = Path.Combine(RepoRoot, relativePath);
         return File.ReadAllText(fullPath);
+    }
+
+    private static JsonElement ReadJsonFile(string relativePath)
+    {
+        return JsonDocument.Parse(ReadRepoFile(relativePath)).RootElement.Clone();
     }
 
     private static (int ExitCode, string StdOut, string StdErr) RunBashScript(
@@ -91,38 +97,39 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("NODE_VERSION=24", dockerfile);
         Assert.Contains("nvm install \"${NODE_VERSION}\"", dockerfile);
         Assert.Contains("ln -sf \"${NODE_BIN_DIR}/node\" /usr/local/bin/node", dockerfile);
-        Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
+        Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/home/hagicode/.hagiscript/node-runtime/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
         Assert.Contains("npm config set prefix '/home/hagicode/.npm-global'", dockerfile);
-        Assert.Contains("PINNED_CLAUDE_CODE_CLI_VERSION=2.1.71", dockerfile);
-        Assert.Contains("PINNED_OPENSPEC_CLI_VERSION=1.2.0", dockerfile);
-        Assert.Contains("PINNED_SKILLS_CLI_VERSION=1.5.1", dockerfile);
-        Assert.Contains("PINNED_OPENCODE_CLI_VERSION=1.2.25", dockerfile);
-        Assert.Contains("PINNED_CODEX_CLI_VERSION=0.112.0", dockerfile);
-        Assert.Contains("PINNED_OMNIROUTE_VERSION=3.6.9", dockerfile);
-        Assert.Contains("PINNED_PM2_VERSION=6.0.14", dockerfile);
-        Assert.Contains("PINNED_CODE_SERVER_VERSION=4.115.0", dockerfile);
+        Assert.Contains("HAGISCRIPT_NPM_SYNC_MANIFEST=/app/bootstrap/hagiscript-sync-manifest.json", dockerfile);
+        Assert.Contains("HAGISCRIPT_MANAGED_RUNTIME=/home/hagicode/.hagiscript/node-runtime", dockerfile);
+        Assert.Contains("PINNED_HAGISCRIPT_VERSION=0.1.0", dockerfile);
+        Assert.DoesNotContain("PINNED_CLAUDE_CODE_CLI_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_OPENSPEC_CLI_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_SKILLS_CLI_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_OPENCODE_CLI_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_CODEX_CLI_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_OMNIROUTE_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_PM2_VERSION", dockerfile);
+        Assert.DoesNotContain("PINNED_CODE_SERVER_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_UIPRO_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_COPILOT_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_CODEBUDDY_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_QODER_CLI_VERSION", dockerfile);
         Assert.Contains("openssh-client", dockerfile);
         Assert.Contains("Install runtime dependencies needed by the app, non-root startup, and SSH/Git access.", dockerfile);
-        Assert.Contains("Install OpenSpec CLI as the retained workflow tool in the image baseline", dockerfile);
-        Assert.Contains("Install Skills CLI as the retained bundled skill-management tool", dockerfile);
-        Assert.Contains("Install the retained primary agent CLI baseline", dockerfile);
-        Assert.Contains("Provider CLIs outside claude/opencode/codex stay UI-managed at runtime", dockerfile);
+        Assert.Contains("Copy the release-owned HagiScript sync input before running the build-time tool sync.", dockerfile);
+        Assert.Contains("Install pinned HagiScript first, then delegate the retained baked toolchain to npm-sync.", dockerfile);
 
-        Assert.Contains("npm install -g \"@anthropic-ai/claude-code@${PINNED_CLAUDE_CODE_CLI_VERSION}\"", dockerfile);
+        Assert.Contains("COPY --chown=hagicode:hagicode hagiscript-sync-manifest.json /app/bootstrap/hagiscript-sync-manifest.json", dockerfile);
+        Assert.Contains("npm install -g \"@hagicode/hagiscript@${PINNED_HAGISCRIPT_VERSION}\"", dockerfile);
+        Assert.Contains("hagiscript npm-sync", dockerfile);
+        Assert.Contains("--managed-runtime \"${HAGISCRIPT_MANAGED_RUNTIME}\"", dockerfile);
+        Assert.Contains("--manifest \"${HAGISCRIPT_NPM_SYNC_MANIFEST}\"", dockerfile);
+        Assert.Contains("hagiscript --version", dockerfile);
         Assert.Contains("claude --version", dockerfile);
-        Assert.Contains("npm install -g \"@fission-ai/openspec@${PINNED_OPENSPEC_CLI_VERSION}\"", dockerfile);
         Assert.Contains("openspec --version", dockerfile);
-        Assert.Contains("npm install -g \"skills@${PINNED_SKILLS_CLI_VERSION}\"", dockerfile);
         Assert.Contains("skills --version", dockerfile);
-        Assert.Contains("npm install -g \"opencode-ai@${PINNED_OPENCODE_CLI_VERSION}\"", dockerfile);
         Assert.Contains("opencode --version", dockerfile);
-        Assert.Contains("npm install -g \"@openai/codex@${PINNED_CODEX_CLI_VERSION}\"", dockerfile);
         Assert.Contains("codex --version", dockerfile);
-        Assert.Contains("npm install -g \"omniroute@${PINNED_OMNIROUTE_VERSION}\" \"pm2@${PINNED_PM2_VERSION}\"", dockerfile);
         Assert.Contains("omniroute --help >/dev/null", dockerfile);
         Assert.Contains("pm2 --version", dockerfile);
         Assert.Contains("command -v pm2-runtime >/dev/null", dockerfile);
@@ -131,10 +138,6 @@ public class DockerBuildIntegrationTests
         Assert.Contains("COPY --chown=hagicode:hagicode wait-for-ready.sh /app/bootstrap/wait-for-ready.sh", dockerfile);
         Assert.Contains("chmod +x /app/bootstrap/wait-for-ready.sh", dockerfile);
         Assert.Contains("RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \\", dockerfile);
-        Assert.Contains("code-server: 4.115.0 (standalone release archive)", dockerfile);
-        Assert.Contains("Unsupported architecture for code-server", dockerfile);
-        Assert.Contains("https://github.com/coder/code-server/releases/download/v${PINNED_CODE_SERVER_VERSION}/code-server-${PINNED_CODE_SERVER_VERSION}-linux-${CODE_SERVER_ARCH}.tar.gz", dockerfile);
-        Assert.Contains("ln -sf \"${CODE_SERVER_INSTALL_DIR}/bin/code-server\" /usr/local/bin/code-server", dockerfile);
         Assert.Contains("code-server --version", dockerfile);
         Assert.Contains("RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \\", dockerfile);
         Assert.DoesNotContain("/app/saves/save0", dockerfile);
@@ -150,6 +153,26 @@ public class DockerBuildIntegrationTests
     }
 
     [Fact]
+    public void HagiscriptSyncManifest_ShouldRepresent_RetainedBakedToolBoundary()
+    {
+        var manifest = ReadJsonFile("docker_deployment/hagiscript-sync-manifest.json");
+        var tools = manifest.GetProperty("tools");
+        var selectedIds = tools.GetProperty("selectedOptionalAgentCliIds")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToArray();
+        var customAgentClis = tools.GetProperty("customAgentClis").EnumerateArray().ToArray();
+
+        Assert.True(tools.GetProperty("optionalAgentCliSyncEnabled").GetBoolean());
+        Assert.Equal(new[] { "claude-code", "fission-openspec", "opencode", "codex" }, selectedIds);
+        Assert.Single(customAgentClis);
+        Assert.Equal("pm2", customAgentClis[0].GetProperty("packageName").GetString());
+        Assert.Equal("6.0.14", customAgentClis[0].GetProperty("version").GetString());
+        Assert.Equal("6.0.14", customAgentClis[0].GetProperty("target").GetString());
+        Assert.DoesNotContain("qoder", selectedIds);
+    }
+
+    [Fact]
     public void Dockerfile_ShouldSanitize_NvmBootstrapEnvironment()
     {
         var dockerfile = ReadRepoFile("docker_deployment/Dockerfile.template");
@@ -161,7 +184,7 @@ public class DockerBuildIntegrationTests
         Assert.True(nvmInstallIndex >= 0, "Docker template should install Node.js through nvm.");
         Assert.True(unsetPrefixIndex < nvmInstallIndex, "Docker template should clear NPM_CONFIG_PREFIX before running nvm install.");
         Assert.Contains("npm config set prefix '/home/hagicode/.npm-global'", dockerfile);
-        Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
+        Assert.Contains("ENV PATH=\"/home/hagicode/.npm-global/bin:/home/hagicode/.hagiscript/node-runtime/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}\"", dockerfile);
     }
 
     [Fact]
@@ -182,8 +205,8 @@ public class DockerBuildIntegrationTests
         Assert.Contains("ensure_hagicode_runtime_paths()", entrypoint);
         Assert.Contains("groupmod -o -g \"$PGID\" \"$HAGICODE_GROUP\"", entrypoint);
         Assert.Contains("usermod -o -u \"$PUID\" -g \"$PGID\" -d \"$HAGICODE_HOME\" \"$HAGICODE_USER\"", entrypoint);
-        Assert.Contains("run_as_hagicode npm install -g", entrypoint);
-        Assert.Contains("run_as_hagicode \"${command_name}\" --version >/dev/null", entrypoint);
+        Assert.Contains("verify_hagiscript_synced_toolchain()", entrypoint);
+        Assert.Contains("HAGISCRIPT_MANAGED_RUNTIME", entrypoint);
         Assert.Contains("capture_upstream_provider_inputs()", entrypoint);
         Assert.Contains("normalize_omniroute_runtime_contract()", entrypoint);
         Assert.Contains("wait_for_omniroute_health()", entrypoint);
@@ -195,10 +218,11 @@ public class DockerBuildIntegrationTests
         Assert.DoesNotContain("deluser hagicode", entrypoint);
         Assert.DoesNotContain("gosu node", entrypoint);
         Assert.DoesNotContain("/home/node", entrypoint);
-        Assert.Contains("CLAUDE_CODE_CLI_VERSION", entrypoint);
-        Assert.Contains("OPENSPEC_CLI_VERSION", entrypoint);
-        Assert.Contains("PINNED_OPENCODE_CLI_VERSION", entrypoint);
-        Assert.Contains("CODEX_CLI_VERSION", entrypoint);
+        Assert.DoesNotContain("run_as_hagicode npm install -g", entrypoint);
+        Assert.DoesNotContain("CLAUDE_CODE_CLI_VERSION", entrypoint);
+        Assert.DoesNotContain("OPENSPEC_CLI_VERSION", entrypoint);
+        Assert.DoesNotContain("PINNED_OPENCODE_CLI_VERSION", entrypoint);
+        Assert.DoesNotContain("CODEX_CLI_VERSION", entrypoint);
         Assert.Contains("configure_code_server_runtime_if_needed()", entrypoint);
         Assert.Contains("HAGICODE_APP_DATA_DIR=\"${HAGICODE_APP_DIR}/data\"", entrypoint);
         Assert.Contains("HAGICODE_APP_SAVES_DIR=\"${HAGICODE_APP_DIR}/saves\"", entrypoint);
@@ -209,7 +233,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("ACCEPT_EULA must be set to an accepted opt-in value", entrypoint);
         Assert.Contains("run_as_hagicode code-server --version >/dev/null", entrypoint);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN (masked)", entrypoint);
-        Assert.Contains("OpenCode CLI using pinned image version", entrypoint);
+        Assert.Contains("HagiScript-synced image toolchain verified", entrypoint);
         Assert.Contains("OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN", entrypoint);
         Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_BASE_URL", entrypoint);
         Assert.Contains("OMNIROUTE_CODEX_UPSTREAM_API_KEY", entrypoint);
@@ -267,6 +291,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("HAGICODE_APP_COMMAND is required for pm2 startup", ecosystem);
 
         Assert.Contains("File.Copy(DockerPm2EcosystemConfig, DockerBuildContext / \"ecosystem.config.cjs\", true);", appImageTarget);
+        Assert.Contains("File.Copy(DockerHagiScriptSyncManifest, DockerBuildContext / \"hagiscript-sync-manifest.json\", true);", appImageTarget);
         Assert.Contains("File.Copy(DockerOmnirouteBootstrapScript, DockerBuildContext / \"omniroute-bootstrap.mjs\", true);", appImageTarget);
         Assert.Contains("File.Copy(DockerWaitForReadyScript, DockerBuildContext / \"wait-for-ready.sh\", true);", appImageTarget);
         Assert.Contains("platform-aware when a platform list is supplied", appImageTarget);
@@ -368,6 +393,7 @@ public class DockerBuildIntegrationTests
             HAGICODE_CLAUDE_DIR="${HAGICODE_HOME}/.claude"
             HAGICODE_CLAUDE_STATE_FILE="${HAGICODE_HOME}/.claude.json"
             HAGICODE_NPM_PREFIX="${HAGICODE_HOME}/.npm-global"
+            HAGISCRIPT_MANAGED_RUNTIME="${HAGICODE_HOME}/.hagiscript/node-runtime"
             HAGICODE_SSH_DIR="${HAGICODE_HOME}/.ssh"
             HAGICODE_IMPORTED_SSH_KEY="${HAGICODE_SSH_DIR}/imported_key"
             HAGICODE_IMPORTED_KNOWN_HOSTS="${HAGICODE_SSH_DIR}/known_hosts"
@@ -410,7 +436,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Node.js 22 is installed through an image-managed NVM layout", readme);
         Assert.DoesNotContain("Node.js 24", readme);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", readme);
-        Assert.Contains("`code-server` is installed from the pinned standalone release archive", readme);
+        Assert.Contains("installs pinned `@hagicode/hagiscript` first", readme);
+        Assert.Contains("`hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json`", readme);
+        Assert.Contains("HagiScript catalog-backed `code-server` runtime", readme);
         Assert.Contains("Only `hagicode` is supported as the non-root runtime user", readme);
         Assert.Contains("`claude`", readme);
         Assert.Contains("`opencode`", readme);
@@ -452,7 +480,9 @@ public class DockerBuildIntegrationTests
         Assert.Contains("Node.js 22", readmeCn);
         Assert.DoesNotContain("Node.js 24", readmeCn);
         Assert.Contains("会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`", readmeCn);
-        Assert.Contains("`code-server` 会通过固定版本的 standalone 发布包安装", readmeCn);
+        Assert.Contains("先安装固定版本的 `@hagicode/hagiscript`", readmeCn);
+        Assert.Contains("`hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json`", readmeCn);
+        Assert.Contains("HagiScript catalog-backed 的 `code-server` 运行时", readmeCn);
         Assert.Contains("唯一受支持的非 root 运行用户是 `hagicode`", readmeCn);
         Assert.Contains("主要 agent CLI 基线", readmeCn);
         Assert.Contains("`openspec` 仍作为镜像保留的工作流工具存在", readmeCn);
@@ -488,14 +518,18 @@ public class DockerBuildIntegrationTests
         Assert.Contains("CODEBUDDY_INTERNET_ENVIRONMENT", environmentVariables);
         Assert.Contains("QODER_PERSONAL_ACCESS_TOKEN", environmentVariables);
         Assert.Contains("qodercli --acp", environmentVariables);
+        Assert.Contains("no longer owns startup-time per-tool reinstall variables", environmentVariables);
+        Assert.Contains("update the HagiScript catalog or this release manifest and rebuild the image", environmentVariables);
         Assert.Contains("There is intentionally no `OPENCODE_CLI_VERSION`", environmentVariables);
         Assert.Contains("UI-managed installs: `copilot`, `codebuddy`, and `qodercli`", environmentVariables);
         Assert.Contains("`uipro` is no longer shipped because the bundled `skills` command replaces its runtime role", environmentVariables);
         Assert.Contains("Supported non-root runtime user: `hagicode` only", environmentVariables);
         Assert.Contains("the image does not rely on the upstream `node` user or `/home/node`", environmentVariables);
         Assert.Contains("clears `NPM_CONFIG_PREFIX` before `nvm install`", environmentVariables);
-        Assert.Contains("code-server is installed from the pinned standalone release archive", environmentVariables);
-        Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`", environmentVariables);
+        Assert.Contains("Pinned `@hagicode/hagiscript` is installed first", environmentVariables);
+        Assert.Contains("`hagiscript npm-sync` consumes `/app/bootstrap/hagiscript-sync-manifest.json`", environmentVariables);
+        Assert.Contains("HagiScript catalog-backed `code-server`", environmentVariables);
+        Assert.Contains("Shared PATH exposure comes from `/usr/local/nvm/current/bin`, `/home/hagicode/.npm-global/bin`, and `/home/hagicode/.hagiscript/node-runtime/bin`", environmentVariables);
         Assert.Contains("Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`", environmentVariables);
         Assert.Contains("Retained bundled tools: `openspec` for workflow automation and `skills` for skill management", environmentVariables);
         Assert.Contains("### Skills CLI", agentGuidance);
@@ -626,8 +660,13 @@ public class DockerBuildIntegrationTests
         Assert.Contains("--secrets-file", upScript);
         Assert.Contains("run_compose up -d", upScript);
         Assert.Contains("HTTP health check passed", testScript);
+        Assert.Contains("hagiscript --version", testScript);
         Assert.Contains("openspec --version", testScript);
         Assert.Contains("skills --version", testScript);
+        Assert.Contains("omniroute --help", testScript);
+        Assert.Contains("pm2 --version", testScript);
+        Assert.Contains("pm2-runtime", testScript);
+        Assert.Contains("HagiScript-synced bundled CLI smoke test passed", testScript);
         Assert.Contains("DEFAULT_SECRETS_FILE", commonScript);
         Assert.Contains("Loaded local secrets override", commonScript);
         Assert.Contains("detect_host_platform()", commonScript);

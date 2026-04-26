@@ -18,6 +18,9 @@ partial class Build
     /// Gets the Docker entrypoint script path
     AbsolutePath DockerEntrypointScript => DockerDeploymentDirectory / "docker-entrypoint.sh";
 
+    /// Gets the HagiScript npm-sync manifest used by the unified image tool bootstrap.
+    AbsolutePath DockerHagiScriptSyncManifest => DockerDeploymentDirectory / "hagiscript-sync-manifest.json";
+
     /// Gets the pm2 ecosystem file path used by the runtime bootstrap
     AbsolutePath DockerPm2EcosystemConfig => DockerDeploymentDirectory / "ecosystem.config.cjs";
 
@@ -95,6 +98,7 @@ partial class Build
 
         // Copy entrypoint script
         File.Copy(DockerEntrypointScript, DockerBuildContext / "docker-entrypoint.sh", true);
+        File.Copy(DockerHagiScriptSyncManifest, DockerBuildContext / "hagiscript-sync-manifest.json", true);
         File.Copy(DockerPm2EcosystemConfig, DockerBuildContext / "ecosystem.config.cjs", true);
         File.Copy(DockerOmnirouteBootstrapScript, DockerBuildContext / "omniroute-bootstrap.mjs", true);
         File.Copy(DockerWaitForReadyScript, DockerBuildContext / "wait-for-ready.sh", true);
