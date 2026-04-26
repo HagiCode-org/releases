@@ -1,0 +1,18 @@
+{
+  "tools": {
+    "optionalAgentCliSyncEnabled": true,
+    "selectedOptionalAgentCliIds": [
+      "claude-code",
+      "fission-openspec",
+      "opencode",
+      "codex"
+    ],
+    "customAgentClis": [
+      {
+        "packageName": "pm2",
+        "version": "6.0.14",
+        "target": "6.0.14"
+      }
+    ]
+  }
+}
