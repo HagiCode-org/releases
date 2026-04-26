@@ -36,23 +36,28 @@ function FirstJsonValue {
     perl -nle 'print $1 if m{"'"$1"'": "([^"]+)",?}' <<< "${@:2}"
 }
 
-# If dotnet CLI is installed globally and it matches requested version, use for execution
+# If global.json exists, load the pinned SDK version first.
+if [[ -f "$DOTNET_GLOBAL_FILE" ]]; then
+    DOTNET_VERSION=$(FirstJsonValue "version" "$(cat "$DOTNET_GLOBAL_FILE")")
+    if [[ "$DOTNET_VERSION" == ""  ]]; then
+        unset DOTNET_VERSION
+    fi
+fi
+
+# Only reuse the globally installed dotnet when it already matches the pinned SDK version.
 if [ -x "$(command -v dotnet)" ] && dotnet --version &>/dev/null; then
-    export DOTNET_EXE="$(command -v dotnet)"
-else
+    INSTALLED_DOTNET_VERSION=$(dotnet --version)
+    if [[ -z ${DOTNET_VERSION+x} || "$INSTALLED_DOTNET_VERSION" == "$DOTNET_VERSION" ]]; then
+        export DOTNET_EXE="$(command -v dotnet)"
+    fi
+fi
+
+if [[ -z ${DOTNET_EXE+x} ]]; then
     # Download install script
     DOTNET_INSTALL_FILE="$TEMP_DIRECTORY/dotnet-install.sh"
     mkdir -p "$TEMP_DIRECTORY"
     curl -Lsfo "$DOTNET_INSTALL_FILE" "$DOTNET_INSTALL_URL"
     chmod +x "$DOTNET_INSTALL_FILE"
-
-    # If global.json exists, load expected version
-    if [[ -f "$DOTNET_GLOBAL_FILE" ]]; then
-        DOTNET_VERSION=$(FirstJsonValue "version" "$(cat "$DOTNET_GLOBAL_FILE")")
-        if [[ "$DOTNET_VERSION" == ""  ]]; then
-            unset DOTNET_VERSION
-        fi
-    fi
 
     # Install by channel or version
     DOTNET_DIRECTORY="$TEMP_DIRECTORY/dotnet-unix"
