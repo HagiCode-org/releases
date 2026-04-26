@@ -53,13 +53,14 @@ cp .env.secrets.local.example .env.secrets.local
 - 本地专用的明文凭据建议放在 `.env.secrets.local`；本地脚本会在 `.env.local` 之后加载它，`build.sh` / `build.ps1` 在非 GitHub Actions 环境下也会自动加载
 - 如果设置了 `AZURE_BLOB_SAS_URL`，`scripts/docker-local-build.sh` 会先下载指定版本和平台的包；否则会复用 `output/download` 中已经存在的 zip 包
 - 本地镜像构建仍然依赖 Docker Hub、`dot.net`、GitHub 与 npm 的出站访问，除非你的机器已经准备好了等价的镜像源或缓存
-- `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 `claude`、`openspec`、`skills`、`opencode`、`codex` 与 `code-server` 是否都能在容器内执行
+- `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 HagiScript 同步后的运行时基线：`hagiscript`、`claude`、`openspec`、`skills`、`opencode`、`codex`、`omniroute`、`pm2`、`pm2-runtime` 与 `code-server` 是否都能在容器内执行
 
 ## 容器运行时契约
 
 统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 22 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而通过 npm 交付的内置 CLI 仍安装在 `/home/hagicode/.npm-global`。
 镜像构建时，Node 引导层会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`；切换到 `hagicode` 用户后，再通过 `npm config set prefix '/home/hagicode/.npm-global'` 恢复 npm CLI 的运行时和全局安装约定。
-`code-server` 会通过固定版本的 standalone 发布包安装并挂到 `PATH`，因此不依赖 npm 全局 prefix。
+随后镜像会先安装固定版本的 `@hagicode/hagiscript`，再运行 `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` 同步其余内置依赖基线。发布仓库内的 manifest 选择 `claude-code`、`fission-openspec`、`opencode` 与 `codex` 这些 optional built-in agent CLI；HagiScript 内部 catalog 提供 mandatory 的 `skills`、`omniroute` 与 `code-server`；manifest 还把 `pm2@6.0.14` 保留为 custom sync entry，确保 `pm2-runtime` 继续可用。
+HagiScript 托管运行时已经加入 `PATH`，因此同步后的命令不需要入口脚本在启动时重新安装。
 
 容器中唯一受支持的非 root 运行用户是 `hagicode`。当提供 `PUID` 和 `PGID` 时，启动脚本只会重映射这一个用户，并修正 `/home/hagicode`、其 `.claude` 状态目录以及 `/app` 的所有权。
 
@@ -69,7 +70,7 @@ cp .env.secrets.local.example .env.secrets.local
 - `opencode`
 - `codex`
 
-`openspec` 仍作为镜像保留的工作流工具存在，`skills` 也作为镜像保留的技能管理 CLI 默认内置；它们都会与主要 agent CLI 基线分开表述，避免再次把更多 provider CLI 误解为默认内置能力。
+`openspec` 仍作为镜像保留的工作流工具存在，`skills` 也作为镜像保留的技能管理 CLI 默认内置；二者都通过同一套 HagiScript catalog-backed 基线同步，并与主要 agent CLI 基线分开表述，避免再次把更多 provider CLI 误解为默认内置能力。
 
 像 `copilot`、`codebuddy`、`qodercli` 这样的 provider CLI 现在都走 HagiCode UI 管理的安装路径，不再作为容器默认内置能力。`uipro` 也不再随镜像发布，因为对应能力已经由内置的 `skills` 命令接管。
 
@@ -102,7 +103,7 @@ bootstrap 完成后，容器会把主要 provider 端点统一回环到本地 Om
 
 ## 内置 Code Server 运行时
 
-统一镜像现在会把固定版本的 `code-server` 一并内置到运行时基线里，因此 Builder 可以直接导出浏览器 IDE 默认值，而不需要部署者在容器启动后再手工安装额外软件。
+统一镜像现在会把 HagiScript catalog-backed 的 `code-server` 运行时一并内置到基线里，因此 Builder 可以直接导出浏览器 IDE 默认值，而不需要部署者在容器启动后再手工安装额外软件。
 
 - 当 Builder 处于 `full-custom` 模式并保持启用 code-server 时，会直接导出 `VsCodeServer__*` 默认值
 - Builder 现在额外提供一个共享的 EULA 开关；只有显式勾选后才会导出 `ACCEPT_EULA=Y`，否则入口脚本会拒绝继续启动

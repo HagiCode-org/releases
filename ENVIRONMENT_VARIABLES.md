@@ -110,7 +110,9 @@ These variables are used inside Docker containers to configure AI agents:
 - Clean runtime base: `debian:bookworm-slim`
 - Shared Node.js toolchain: Node 22 via NVM under `/usr/local/nvm`
 - Build-time Node bootstrap clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user
-- code-server is installed from the pinned standalone release archive and exposed on the default system PATH
+- Pinned `@hagicode/hagiscript` is installed first, then `hagiscript npm-sync` consumes `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the rest of the catalog-backed baked baseline
+- HagiScript's managed runtime lives at `/home/hagicode/.hagiscript/node-runtime` and is included on the default system PATH alongside `/home/hagicode/.npm-global/bin`
+- The HagiScript sync manifest selects `claude-code`, `fission-openspec`, `opencode`, and `codex`; HagiScript's internal catalog supplies `skills`, `omniroute`, and `code-server`; `pm2@6.0.14` is kept as a custom sync entry for `pm2-runtime`
 - Supported non-root runtime user: `hagicode` only
 - Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`
 - Retained bundled tools: `openspec` for workflow automation and `skills` for skill management
@@ -203,7 +205,7 @@ These variables define how the bundled `code-server` runtime starts when Builder
 | `HASHED_PASSWORD` | Standard `code-server` hashed password variable (accepted as fallback) | No | `\$argon2i\$...` |
 
 **Behavior notes**:
-- The image ships a pinned `code-server` binary from the standalone release archive and verifies `code-server --version` during image build.
+- The image ships HagiScript catalog-backed `code-server` in the baked runtime baseline and verifies `code-server --version` during image build.
 - Enabling the shared Builder EULA toggle exports `ACCEPT_EULA=Y`; leaving the toggle disabled omits `ACCEPT_EULA` instead of exporting a false-like value.
 - Container startup fails fast unless `ACCEPT_EULA` resolves to an accepted opt-in value (`Y`, `YES`, `TRUE`, or `1`, case-insensitive).
 - Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
@@ -294,15 +296,9 @@ Copilot variables are isolated and do not override Codex/OpenAI variables.
 | `COPILOT_BASE_URL` | Copilot endpoint variable | No | `https://api.githubcopilot.com` |
 | `COPILOT_API_KEY` | Copilot API key variable | No | `ghp_...` |
 
-### Shipped CLI Version Overrides
+### Shipped CLI Version Baseline
 
-These runtime variables reuse the existing entrypoint reinstall pattern. If a variable is unset, the image keeps using the pinned version baked into the container.
-
-| Variable | Description | Required | Example |
-|----------|-------------|----------|----------|
-| `CLAUDE_CODE_CLI_VERSION` | Override the baked Claude Code CLI version | No | `2.1.71` |
-| `OPENSPEC_CLI_VERSION` | Override the baked OpenSpec CLI version | No | `1.2.0` |
-| `CODEX_CLI_VERSION` | Override the baked Codex CLI version | No | `0.112.0` |
+The container no longer owns startup-time per-tool reinstall variables for baked CLIs. It installs pinned `@hagicode/hagiscript` during image build, then uses `hagiscript npm-sync` and `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked CLI baseline. If a baked CLI version needs to change, update the HagiScript catalog or this release manifest and rebuild the image.
 
 **OpenCode note**:
 - The image ships `opencode` from the pinned `opencode-ai` package baseline.
@@ -349,7 +345,7 @@ These variables are passed through to the container runtime for QoderCLI usage.
 **Behavior notes**:
 - `PUID` / `PGID` remapping only targets the `hagicode` user; the image does not rely on the upstream `node` user or `/home/node`.
 - Container startup reconciles ownership for `/home/hagicode`, `/home/hagicode/.claude`, `/home/hagicode/.npm-global`, and `/app` before launching the app.
-- Shared PATH exposure comes from `/usr/local/nvm/current/bin` and `/home/hagicode/.npm-global/bin`, so `node`, `npm`, `npx`, and baked CLIs do not require sourcing a shell profile.
+- Shared PATH exposure comes from `/usr/local/nvm/current/bin`, `/home/hagicode/.npm-global/bin`, and `/home/hagicode/.hagiscript/node-runtime/bin`, so `node`, `npm`, `npx`, and baked CLIs do not require sourcing a shell profile.
 
 ## GitHub Actions Secrets
 

@@ -53,7 +53,7 @@ cp .env.secrets.local.example .env.secrets.local
 - Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
 - When `AZURE_BLOB_SAS_URL` is set, `scripts/docker-local-build.sh` downloads the requested version/platform package first; otherwise it reuses matching zip packages already present in `output/download`
 - Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
-- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests `claude`, `openspec`, `skills`, `opencode`, `codex`, and `code-server` inside the running container
+- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests the HagiScript-synced runtime baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, `codex`, `omniroute`, `pm2`, `pm2-runtime`, and `code-server` inside the running container
 
 ## Steam Linux desktop artifact verification
 
@@ -82,7 +82,8 @@ Manual reruns stay available, but they are explicit:
 
 The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 22 is installed through an image-managed NVM layout under `/usr/local/nvm`, while npm-installed CLIs remain installed under `/home/hagicode/.npm-global`.
 During image build, the Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`; after the image switches to `hagicode`, `npm config set prefix '/home/hagicode/.npm-global'` restores the runtime/global-install contract for npm-delivered CLIs.
-`code-server` is installed from the pinned standalone release archive and linked on `PATH`, so it does not depend on the npm global prefix.
+The image then installs pinned `@hagicode/hagiscript` first and runs `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` for the rest of the baked dependency baseline. The release-owned manifest selects the optional built-in agent CLIs `claude-code`, `fission-openspec`, `opencode`, and `codex`; HagiScript's internal catalog supplies mandatory `skills`, `omniroute`, and `code-server`; and the manifest keeps `pm2@6.0.14` as a custom sync entry so `pm2-runtime` remains available.
+The managed HagiScript runtime is on `PATH`, so synced commands are available without runtime reinstall work in the entrypoint.
 
 Only `hagicode` is supported as the non-root runtime user. When `PUID` and `PGID` are provided, container startup remaps that single user and reconciles ownership for `/home/hagicode`, its `.claude` state, and `/app`.
 
@@ -92,7 +93,7 @@ The unified runtime image bakes only the primary agent CLI baseline:
 - `opencode`
 - `codex`
 
-`openspec` remains in the image as the retained workflow tool for spec-driven changes, and `skills` remains bundled as the retained skill-management CLI. Both are documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
+`openspec` remains in the image as the retained workflow tool for spec-driven changes, and `skills` remains bundled as the retained skill-management CLI. Both are synchronized through the same HagiScript catalog-backed baseline and documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
 
 Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because the bundled `skills` command replaces its previous shipped-runtime workflow.
 
@@ -125,7 +126,7 @@ After bootstrap, the container runtime rewires the main provider endpoints to lo
 
 ## Bundled Code Server runtime
 
-The unified image now bakes a pinned `code-server` binary into the same runtime baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.
+The unified image now bakes a HagiScript catalog-backed `code-server` runtime into the same baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.
 
 - Builder `full-custom` mode exports `VsCodeServer__*` defaults directly into compose when you keep code-server enabled
 - Builder now exposes a shared EULA toggle that exports `ACCEPT_EULA=Y` only when operators explicitly opt in, and the entrypoint refuses startup without an accepted value
