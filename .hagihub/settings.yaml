@@ -1,0 +1,17 @@
+action_recommendations:
+  - id: docker-build-aliyun-acr
+    watch: true
+    include: true
+    reason: "publish container image to Aliyun ACR"
+  - id: docker-build-azure-acr
+    watch: true
+    include: true
+    reason: "publish container image to Azure ACR"
+  - id: docker-build-dockerhub
+    watch: true
+    include: true
+    reason: "publish container image to Docker Hub"
+  - id: github-release-workflow
+    watch: true
+    include: true
+    reason: "publish GitHub release"
