@@ -2,7 +2,7 @@
 # Multi-stage build combining base tools and application code
 #
 # CLI Tools Baseline:
-# - HagiScript bootstrap: 0.1.0 (@hagicode/hagiscript@0.1.0)
+# - HagiScript bootstrap: 0.3.4 (@hagicode/hagiscript@0.3.4)
 # - HagiScript npm-sync manifest: docker_deployment/hagiscript-sync-manifest.json
 # - Optional agent CLI IDs: claude-code, fission-openspec, opencode, codex
 # - Mandatory HagiScript tool sync: skills, omniroute, code-server
@@ -57,7 +57,7 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
     HAGISCRIPT_NPM_SYNC_MANIFEST=/app/bootstrap/hagiscript-sync-manifest.json \
     HAGISCRIPT_MANAGED_RUNTIME=/home/hagicode/.hagiscript/node-runtime \
-    PINNED_HAGISCRIPT_VERSION=0.1.0
+    PINNED_HAGISCRIPT_VERSION=0.3.4
 ENV PATH="/home/hagicode/.npm-global/bin:/home/hagicode/.hagiscript/node-runtime/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
 # Install Node.js 22 through a shared, image-managed NVM layout and expose it on PATH

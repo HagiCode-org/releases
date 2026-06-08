@@ -101,7 +101,7 @@ public class DockerBuildIntegrationTests
         Assert.Contains("npm config set prefix '/home/hagicode/.npm-global'", dockerfile);
         Assert.Contains("HAGISCRIPT_NPM_SYNC_MANIFEST=/app/bootstrap/hagiscript-sync-manifest.json", dockerfile);
         Assert.Contains("HAGISCRIPT_MANAGED_RUNTIME=/home/hagicode/.hagiscript/node-runtime", dockerfile);
-        Assert.Contains("PINNED_HAGISCRIPT_VERSION=0.1.0", dockerfile);
+        Assert.Contains("PINNED_HAGISCRIPT_VERSION=0.3.4", dockerfile);
         Assert.DoesNotContain("PINNED_CLAUDE_CODE_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_OPENSPEC_CLI_VERSION", dockerfile);
         Assert.DoesNotContain("PINNED_SKILLS_CLI_VERSION", dockerfile);
