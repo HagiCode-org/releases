@@ -21,15 +21,6 @@ partial class Build
     /// Gets the HagiScript npm-sync manifest used by the unified image tool bootstrap.
     AbsolutePath DockerHagiScriptSyncManifest => DockerDeploymentDirectory / "hagiscript-sync-manifest.json";
 
-    /// Gets the pm2 ecosystem file path used by the runtime bootstrap
-    AbsolutePath DockerPm2EcosystemConfig => DockerDeploymentDirectory / "ecosystem.config.cjs";
-
-    /// Gets the Omniroute bootstrap helper script path
-    AbsolutePath DockerOmnirouteBootstrapScript => DockerDeploymentDirectory / "omniroute-bootstrap.mjs";
-
-    /// Gets the ready-gate helper script path
-    AbsolutePath DockerWaitForReadyScript => DockerDeploymentDirectory / "wait-for-ready.sh";
-
     /// Gets the extracted package directory for Docker build
     AbsolutePath DockerBuildContext => OutputDirectory / "docker-build-context";
 
@@ -99,9 +90,6 @@ partial class Build
         // Copy entrypoint script
         File.Copy(DockerEntrypointScript, DockerBuildContext / "docker-entrypoint.sh", true);
         File.Copy(DockerHagiScriptSyncManifest, DockerBuildContext / "hagiscript-sync-manifest.json", true);
-        File.Copy(DockerPm2EcosystemConfig, DockerBuildContext / "ecosystem.config.cjs", true);
-        File.Copy(DockerOmnirouteBootstrapScript, DockerBuildContext / "omniroute-bootstrap.mjs", true);
-        File.Copy(DockerWaitForReadyScript, DockerBuildContext / "wait-for-ready.sh", true);
 
         // Extract and copy lib directory for each platform BEFORE generating Dockerfile.
         // The template consumes lib-${TARGETARCH}, so even single-platform builds must

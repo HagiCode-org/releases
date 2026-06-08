@@ -53,7 +53,7 @@ cp .env.secrets.local.example .env.secrets.local
 - Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
 - When `AZURE_BLOB_SAS_URL` is set, `scripts/docker-local-build.sh` downloads the requested version/platform package first; otherwise it reuses matching zip packages already present in `output/download`
 - Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
-- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests the HagiScript-synced runtime baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, `codex`, `omniroute`, `pm2`, `pm2-runtime`, and `code-server` inside the running container
+- `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests the HagiScript-synced runtime baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, and `codex` inside the running container
 
 ## Steam Linux desktop artifact verification
 
@@ -82,7 +82,7 @@ Manual reruns stay available, but they are explicit:
 
 The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 22 is installed through an image-managed NVM layout under `/usr/local/nvm`, while npm-installed CLIs remain installed under `/home/hagicode/.npm-global`.
 During image build, the Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`; after the image switches to `hagicode`, `npm config set prefix '/home/hagicode/.npm-global'` restores the runtime/global-install contract for npm-delivered CLIs.
-The image then installs pinned `@hagicode/hagiscript` first and runs `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` for the rest of the baked dependency baseline. The release-owned manifest selects the optional built-in agent CLIs `claude-code`, `fission-openspec`, `opencode`, and `codex`; HagiScript's internal catalog supplies mandatory `skills`, `omniroute`, and `code-server`; and the manifest keeps `pm2@6.0.14` as a custom sync entry so `pm2-runtime` remains available.
+The image then installs pinned `@hagicode/hagiscript` first and runs `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` for the rest of the baked dependency baseline. The release-owned manifest selects the optional built-in agent CLIs `claude-code`, `fission-openspec`, `opencode`, and `codex`, while `skills` stays in the retained bundled tool baseline.
 The managed HagiScript runtime is on `PATH`, so synced commands are available without runtime reinstall work in the entrypoint.
 
 Only `hagicode` is supported as the non-root runtime user. When `PUID` and `PGID` are provided, container startup remaps that single user and reconciles ownership for `/home/hagicode`, its `.claude` state, and `/app`.
@@ -95,46 +95,16 @@ The unified runtime image bakes only the primary agent CLI baseline:
 
 `openspec` remains in the image as the retained workflow tool for spec-driven changes, and `skills` remains bundled as the retained skill-management CLI. Both are synchronized through the same HagiScript catalog-backed baseline and documented separately from the primary agent CLI baseline so provider scope does not expand again by accident.
 
+The Docker entrypoint verifies the retained HagiScript-synced CLI baseline, resolves the HagiCode application entrypoint, applies Claude runtime configuration, and starts the app directly. `omniroute` and `code-server` are no longer treated as bundled release-image support, and the runtime no longer depends on `pm2` to supervise a multi-process startup chain.
+
 Provider CLIs such as `copilot`, `codebuddy`, and `qodercli` now follow the HagiCode UI-managed install path instead of shipping in the container by default. `uipro` is no longer part of the image because the bundled `skills` command replaces its previous shipped-runtime workflow.
 
-## Omniroute unified provider bootstrap
+## Runtime startup and persistence
 
-The release image now treats Omniroute as the unified local provider proxy for Claude, Codex/OpenAI, and OpenCode traffic inside the container.
+Container startup is now single-process from the release image perspective: the entrypoint prepares runtime prerequisites and then launches the detected HagiCode app assembly directly with `dotnet`.
 
-- Default local bind: `127.0.0.1:4060`
-- Local management/runtime state: `/app/data/omniroute`
-- Shared process supervision: `pm2-runtime`
-- App readiness gate: `/app/data/omniroute/runtime/hagicode.ready`
-
-Startup order is intentionally Omniroute-first:
-
-1. The entrypoint resolves the HagiCode app command and captures upstream provider credentials before any local reroute happens.
-2. The entrypoint normalizes Omniroute runtime paths and persisted secrets under `/app/data/omniroute`.
-3. The entrypoint exports the local Omniroute endpoint back into the runtime environment consumed by `claude`, `codex`, `opencode`, and HagiCode.
-4. `pm2-runtime` starts two managed processes: `omniroute` and `hagicode-app`.
-5. `hagicode-app` starts through `wait-for-ready.sh`, which blocks on the ready file until Omniroute bootstrap succeeds.
-6. The bootstrap helper logs into local Omniroute, upserts provider nodes/connections through the Omniroute HTTP API, writes bootstrap state, and releases the ready file.
-
-Bootstrap is API-first and idempotent. The container does not mutate Omniroute SQLite files directly; it reuses persisted state and upserts only the providers that have the minimum upstream credentials configured.
-
-After bootstrap, the container runtime rewires the main provider endpoints to local Omniroute URLs:
-
-- `ANTHROPIC_URL` points to the local Omniroute API base URL and `ANTHROPIC_AUTH_TOKEN` is replaced with the shared local key for Claude CLI traffic.
-- `CODEX_BASE_URL` / `OPENAI_BASE_URL` point to the local Omniroute API base URL and `CODEX_API_KEY` / `OPENAI_API_KEY` are replaced with the shared local key.
-- `OPENCODE_BASE_URL` / `OPENCODE_API_BASE_URL` point to the local Omniroute API base URL and `OPENCODE_API_KEY` is replaced with the shared local key.
-- HagiCode receives `HAGICODE_OMNIROUTE_ENABLED=true`, `HAGICODE_OMNIROUTE_BASE_URL`, `HAGICODE_OMNIROUTE_API_BASE_URL`, `OmniRoute__Enabled`, `OmniRoute__BaseUrl`, and `OmniRoute__ApiBaseUrl`.
-
-## Bundled Code Server runtime
-
-The unified image now bakes a HagiScript catalog-backed `code-server` runtime into the same baseline so Builder can export browser-IDE defaults without asking operators to install extra packages after startup.
-
-- Builder `full-custom` mode exports `VsCodeServer__*` defaults directly into compose when you keep code-server enabled
-- Builder now exposes a shared EULA toggle that exports `ACCEPT_EULA=Y` only when operators explicitly opt in, and the entrypoint refuses startup without an accepted value
-- Dedicated host publishing remains opt-in, and the generated mapping binds to `127.0.0.1` by default for the first exposure step
-- Password auth requires `CODE_SERVER_PASSWORD` or `CODE_SERVER_HASHED_PASSWORD`; the entrypoint bridges those variables to the standard `PASSWORD` / `HASHED_PASSWORD` names before app startup
 - Both persistence roots are required in production deployments: `hagicode_data:/app/data` keeps system-scoped assets writable, and `hagicode_saves:/app/saves` keeps save-scoped runtime state writable
-- System-scoped assets still persist through `hagicode_data:/app/data`, and managed Code Server data stays under `/app/data/code-server`
-- Save-scoped HagiCode runtime state now persists through `hagicode_saves:/app/saves`, with the active save rooted at `/app/saves/save0/...`
+- Save-scoped HagiCode runtime state persists through `hagicode_saves:/app/saves`, with the active save rooted at `/app/saves/save0/...`
 - The image and entrypoint prepare only `/app/data` and `/app/saves`; the application runtime still initializes `/app/saves/save0/config` and `/app/saves/save0/data` on demand
 - If you are upgrading from an older single-volume deployment, add a named volume or bind mount for `/app/saves` before replacing the container
 

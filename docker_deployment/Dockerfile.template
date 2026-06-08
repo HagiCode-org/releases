@@ -5,8 +5,7 @@
 # - HagiScript bootstrap: 0.3.4 (@hagicode/hagiscript@0.3.4)
 # - HagiScript npm-sync manifest: docker_deployment/hagiscript-sync-manifest.json
 # - Optional agent CLI IDs: claude-code, fission-openspec, opencode, codex
-# - Mandatory HagiScript tool sync: skills, omniroute, code-server
-# - pm2: 6.0.14 (pm2@6.0.14)
+# - Bundled HagiScript tool sync: skills
 #
 # FRAMEWORK-DEPENDENT DEPLOYMENT:
 # This unified Dockerfile provides .NET 10 runtime in the base stage.
@@ -109,10 +108,6 @@ RUN npm install -g "@hagicode/hagiscript@${PINNED_HAGISCRIPT_VERSION}" && \
     skills --version && \
     opencode --version && \
     codex --version && \
-    omniroute --help >/dev/null && \
-    pm2 --version && \
-    command -v pm2-runtime >/dev/null && \
-    code-server --version && \
     npm cache clean --force
 
 # Switch back to root for final setup
@@ -148,12 +143,6 @@ ENV ASPNETCORE_URLS=http://+:5000
 COPY --chown=hagicode:hagicode docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Copy shared process supervision artifacts used by the Omniroute-first startup contract
-COPY --chown=hagicode:hagicode ecosystem.config.cjs /app/bootstrap/ecosystem.config.cjs
-COPY --chown=hagicode:hagicode omniroute-bootstrap.mjs /app/bootstrap/omniroute-bootstrap.mjs
-COPY --chown=hagicode:hagicode wait-for-ready.sh /app/bootstrap/wait-for-ready.sh
-RUN chmod +x /app/bootstrap/wait-for-ready.sh
-
 # Copy application structure from Linux platform package
 # Framework-dependent package structure:
 # - lib/        : Application binaries and dependencies (NO runtime)
@@ -169,7 +158,7 @@ COPY "lib-${TARGETARCH}/" /app/
 RUN chown -R hagicode:hagicode /app
 
 # Create directories for system-scoped and save-scoped application data
-RUN mkdir -p /app/data /app/data/omniroute /app/data/omniroute/pm2 /app/data/omniroute/runtime /app/saves && \
+RUN mkdir -p /app/data /app/saves && \
     chown -R hagicode:hagicode /app
 
 # Expose the application port (default 5000)
@@ -182,5 +171,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 CMD curl 
 # Set working directory to /app where the application resides
 WORKDIR /app
 
-# Run entrypoint script which configures Omniroute, CLI routing, and pm2-managed startup
+# Run entrypoint script which configures runtime prerequisites and starts the application
 ENTRYPOINT ["docker-entrypoint.sh"]

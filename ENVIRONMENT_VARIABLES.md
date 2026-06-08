@@ -112,63 +112,25 @@ These variables are used inside Docker containers to configure AI agents:
 - Build-time Node bootstrap clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user
 - Pinned `@hagicode/hagiscript` is installed first, then `hagiscript npm-sync` consumes `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the rest of the catalog-backed baked baseline
 - HagiScript's managed runtime lives at `/home/hagicode/.hagiscript/node-runtime` and is included on the default system PATH alongside `/home/hagicode/.npm-global/bin`
-- The HagiScript sync manifest selects `claude-code`, `fission-openspec`, `opencode`, and `codex`; HagiScript's internal catalog supplies `skills`, `omniroute`, and `code-server`; `pm2@6.0.14` is kept as a custom sync entry for `pm2-runtime`
+- The HagiScript sync manifest selects `claude-code`, `fission-openspec`, `opencode`, and `codex`; `skills` remains the retained bundled tool outside the primary provider-facing baseline
 - Supported non-root runtime user: `hagicode` only
 - Primary baked agent CLI baseline: `claude`, `opencode`, and `codex`
 - Retained bundled tools: `openspec` for workflow automation and `skills` for skill management
 - UI-managed installs: `copilot`, `codebuddy`, and `qodercli`
+- Removed from the baked release-image support contract: `omniroute` and `code-server`
 - Superseded helper: `uipro` is no longer shipped because the bundled `skills` command replaces its runtime role
 
-### Omniroute Unified Provider Bootstrap
+### Direct Runtime Startup Contract
 
-These variables control the Omniroute-first startup contract that rewires Claude, Codex/OpenAI, OpenCode, and HagiCode through a local provider proxy.
-
-| Variable | Description | Required | Default | Example |
-|----------|-------------|----------|---------|---------|
-| `OMNIROUTE_ENABLE_BOOTSTRAP` | Enables the provider bootstrap helper. When `false`, the entrypoint skips provider sync and releases the ready file immediately. | No | `true` | `false` |
-| `OMNIROUTE_HOST` | Local Omniroute bind host used when `OMNIROUTE_BASE_URL` is not provided. | No | `127.0.0.1` | `127.0.0.1` |
-| `OMNIROUTE_PORT` | Local Omniroute bind port used when `OMNIROUTE_BASE_URL` is not provided. | No | `4060` | `4060` |
-| `OMNIROUTE_BASE_URL` | Local Omniroute management base URL. | No | `http://127.0.0.1:4060` | `http://127.0.0.1:4060` |
-| `OMNIROUTE_API_BASE_URL` | Local Omniroute API base URL exported back to provider clients and HagiCode. | No | `http://127.0.0.1:4060/v1` | `http://127.0.0.1:4060/v1` |
-| `OMNIROUTE_STATE_DIR` | Persistent Omniroute state directory. | No | `/app/data/omniroute` | `/app/data/omniroute` |
-| `OMNIROUTE_PM2_HOME` | pm2 home used by `pm2-runtime`. | No | `/app/data/omniroute/pm2` | `/app/data/omniroute/pm2` |
-| `OMNIROUTE_RUNTIME_DIR` | Runtime directory for ready files and other transient coordination state. | No | `/app/data/omniroute/runtime` | `/app/data/omniroute/runtime` |
-| `OMNIROUTE_READY_FILE` | Ready file consumed by `wait-for-ready.sh` before HagiCode starts. | No | `/app/data/omniroute/runtime/hagicode.ready` | `/app/data/omniroute/runtime/hagicode.ready` |
-| `OMNIROUTE_BOOTSTRAP_STATE_FILE` | Persisted bootstrap summary used across restarts. | No | `/app/data/omniroute/bootstrap-state.json` | `/app/data/omniroute/bootstrap-state.json` |
-| `OMNIROUTE_INITIAL_PASSWORD` | Omniroute management password used for local `/api/auth/login` bootstrap. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `change-me` |
-| `JWT_SECRET` | Omniroute JWT signing secret. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `jwt_secret_here` |
-| `API_KEY_SECRET` | Omniroute API key secret. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `api_key_secret_here` |
-| `OMNIROUTE_SHARED_API_KEY` | Shared local API key injected into routed Claude/Codex/OpenCode/HagiCode clients. If unset, the entrypoint generates and persists one. | No | Generated and persisted | `shared_local_key` |
-| `OMNIROUTE_STARTUP_TIMEOUT_SECONDS` | Maximum wait time for the Omniroute health endpoint before startup fails. | No | `180` | `240` |
-| `OMNIROUTE_STARTUP_POLL_SECONDS` | Poll interval used while waiting for Omniroute health. | No | `2` | `1` |
-| `HAGICODE_PM2_READY_TIMEOUT_SECONDS` | Maximum wait time used by `wait-for-ready.sh` before the HagiCode app exits. | No | `180` | `240` |
-| `HAGICODE_PM2_READY_POLL_SECONDS` | Poll interval used by `wait-for-ready.sh`. | No | `1` | `2` |
+The release image entrypoint now starts the detected HagiCode application assembly directly instead of orchestrating bundled sidecars.
 
 **Behavior notes**:
-- Omniroute runs as a local unified provider proxy on `127.0.0.1:4060` by default, with persistent state under `/app/data/omniroute`.
-- `pm2-runtime` supervises both `omniroute` and `hagicode-app`; the HagiCode process starts through `wait-for-ready.sh` and stays blocked until `OMNIROUTE_READY_FILE` exists.
-- The bootstrap helper logs into local Omniroute through `/api/auth/login`, uses `/api/provider-nodes` and `/api/providers` for idempotent upserts, writes `OMNIROUTE_BOOTSTRAP_STATE_FILE`, and only syncs providers with complete minimum credentials.
-- The startup contract is API-first: it does not mutate Omniroute SQLite files directly.
-- The entrypoint exports `HAGICODE_OMNIROUTE_ENABLED=true`, `HAGICODE_OMNIROUTE_BASE_URL`, `HAGICODE_OMNIROUTE_API_BASE_URL`, `OmniRoute__Enabled`, `OmniRoute__BaseUrl`, and `OmniRoute__ApiBaseUrl` back into the HagiCode runtime.
-- The entrypoint also rewires `ANTHROPIC_URL`, `ANTHROPIC_AUTH_TOKEN`, `CODEX_BASE_URL`, `CODEX_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_API_BASE_URL`, and `OPENCODE_API_KEY` to the local Omniroute endpoint plus the shared local key.
-
-### Upstream Provider Capture For Omniroute Bootstrap
-
-These variables preserve upstream provider connectivity for the bootstrap helper before the entrypoint rewires runtime traffic to local Omniroute.
-
-| Variable | Description | Required | Default / Fallback | Example |
-|----------|-------------|----------|--------------------|---------|
-| `OMNIROUTE_CLAUDE_UPSTREAM_BASE_URL` | Explicit Anthropic-compatible upstream base URL for bootstrap. | No | `ANTHROPIC_URL` | `https://api.anthropic.com` |
-| `OMNIROUTE_CLAUDE_UPSTREAM_AUTH_TOKEN` | Explicit Anthropic token for bootstrap. | No | `ANTHROPIC_AUTH_TOKEN` | `sk-ant-...` |
-| `OMNIROUTE_CODEX_UPSTREAM_BASE_URL` | Explicit Codex/OpenAI upstream base URL for bootstrap. | No | `CODEX_BASE_URL` > `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
-| `OMNIROUTE_CODEX_UPSTREAM_API_KEY` | Explicit Codex/OpenAI API key for bootstrap. | No | `CODEX_API_KEY` > `OPENAI_API_KEY` | `sk-...` |
-| `OMNIROUTE_OPENCODE_UPSTREAM_BASE_URL` | Explicit OpenCode upstream base URL for bootstrap. | No | `OPENCODE_BASE_URL` > `OPENCODE_API_BASE_URL` > `OPENCODE_BASE_URL_COMPAT` | `https://opencode.example/v1` |
-| `OMNIROUTE_OPENCODE_UPSTREAM_API_KEY` | Explicit OpenCode API key for bootstrap. | No | `OPENCODE_API_KEY` | `opc_...` |
-
-**Behavior notes**:
-- The entrypoint captures these upstream values before it rewrites runtime traffic to local Omniroute.
-- If the explicit `OMNIROUTE_*_UPSTREAM_*` variables are unset, the bootstrap helper falls back to the current provider environment variables using the precedence shown above.
-- Claude, Codex/OpenAI, and OpenCode are bootstrapped independently. Missing credentials for one provider do not block the others from being synced.
+- Startup verifies the retained HagiScript-synced baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, and `codex`
+- The entrypoint resolves the application command from `PCode.Web.dll` or `Hagicode.dll`, then starts it with `dotnet`
+- Claude configuration still honors `ANTHROPIC_*` variables first and falls back to the mounted host config when enabled
+- `omniroute` and `code-server` are no longer baked release-image dependencies and no release-side environment contract relies on them
+- Both persistence roots are still required in production deployments: `hagicode_data:/app/data` and `hagicode_saves:/app/saves`
+- The image and entrypoint only prepare `/app/data` and `/app/saves`; the application runtime still initializes `/app/saves/save0/config` and `/app/saves/save0/data` on demand
 
 ### SSH Bootstrap Configuration
 
@@ -186,68 +148,6 @@ These variables control the startup-time SSH private key import flow used by dow
 - If `SSH_KNOWN_HOSTS_PATH` is set, it must also point to a readable file; otherwise startup fails before the app launches.
 - The entrypoint copies the key, writes deterministic SSH config, locks down permissions (`700` on `.ssh`, `600` on the imported key, `644` on `known_hosts` and `config`), and exports `GIT_SSH_COMMAND="ssh -F /home/hagicode/.ssh/config"`.
 - `SSH_STRICT_HOST_KEY_CHECKING` accepts `yes`, `no`, `ask`, `accept-new`, or `off`. The documented default is `accept-new`.
-
-### Code Server Deployment Contract
-
-These variables define how the bundled `code-server` runtime starts when Builder exports browser-IDE defaults from `full-custom` mode and when the shared Builder EULA toggle exports container-startup consent.
-
-| Variable | Description | Required | Example |
-|----------|-------------|----------|---------|
-| `VsCodeServer__DefaultActiveImplementation` | Active implementation selected by deployment defaults (`code-server` or `code-serve-web`) | No | `code-server` |
-| `VsCodeServer__CodeServerDefaultHost` | Container listen host passed to managed code-server startup | No | `127.0.0.1` |
-| `VsCodeServer__CodeServerDefaultPort` | Container listen port passed to managed code-server startup | No | `36529` |
-| `VsCodeServer__CodeServerExecutablePath` | Executable path used by the managed runtime | No | `code-server` |
-| `VsCodeServer__CodeServerAuthMode` | Auth mode passed to `code-server --auth` | No | `none` or `password` |
-| `ACCEPT_EULA` | Explicit container EULA opt-in required by the entrypoint before startup; Builder exports `Y` when the shared toggle is enabled | Yes for successful startup | `Y` |
-| `CODE_SERVER_PASSWORD` | Builder-facing plaintext password secret bridged to `PASSWORD` during entrypoint bootstrap | No | `change-me` |
-| `CODE_SERVER_HASHED_PASSWORD` | Builder/operator-facing hashed password bridged to `HASHED_PASSWORD` during bootstrap | No | `\$argon2i\$...` |
-| `PASSWORD` | Standard `code-server` plaintext password variable (accepted as fallback) | No | `change-me` |
-| `HASHED_PASSWORD` | Standard `code-server` hashed password variable (accepted as fallback) | No | `\$argon2i\$...` |
-
-**Behavior notes**:
-- The image ships HagiScript catalog-backed `code-server` in the baked runtime baseline and verifies `code-server --version` during image build.
-- Enabling the shared Builder EULA toggle exports `ACCEPT_EULA=Y`; leaving the toggle disabled omits `ACCEPT_EULA` instead of exporting a false-like value.
-- Container startup fails fast unless `ACCEPT_EULA` resolves to an accepted opt-in value (`Y`, `YES`, `TRUE`, or `1`, case-insensitive).
-- Builder keeps Code Server private by default; public exposure still depends on an explicit Docker Compose `ports` mapping.
-- The generated Builder mapping binds to `127.0.0.1:<host-port>:<container-port>` by default, so wider exposure should be handled explicitly through a reverse proxy or edited compose file.
-- If `VsCodeServer__CodeServerAuthMode=password`, startup fails fast unless one of `CODE_SERVER_PASSWORD`, `CODE_SERVER_HASHED_PASSWORD`, `PASSWORD`, or `HASHED_PASSWORD` is present.
-- Both persistence roots are required in production deployments: `hagicode_data:/app/data` keeps system-scoped assets writable, and `hagicode_saves:/app/saves` keeps save-scoped runtime state writable.
-- System-scoped assets persist through `hagicode_data:/app/data`, with managed Code Server data stored under `/app/data/code-server`.
-- Save-scoped HagiCode runtime state persists through `hagicode_saves:/app/saves`, with the active save rooted at `/app/saves/save0/...`.
-- The image and entrypoint only prepare `/app/data` and `/app/saves`; the application runtime still initializes `/app/saves/save0/config` and `/app/saves/save0/data`.
-- If you are upgrading from a deployment that only persisted `/app/data`, add a named volume or bind mount for `/app/saves` before moving to this layout.
-
-**Release-side verification sequence**:
-```bash
-# 1. Confirm the bundled binary exists in the built image
-docker run --rm --entrypoint bash <hagicode-image> -lc 'code-server --version'
-
-# 2. Confirm the EULA gate accepts the Builder-style opt-in
-docker run --rm --entrypoint bash \
-  -e ACCEPT_EULA=Y \
-  <hagicode-image> \
-  -lc 'if [ "$ACCEPT_EULA" = "Y" ]; then echo \"eula-ready\"; else exit 1; fi'
-
-# 3. Confirm the EULA gate fails fast when the opt-in is missing
-docker run --rm --entrypoint bash \
-  <hagicode-image> \
-  -lc 'if [ -z "${ACCEPT_EULA:-}" ]; then echo \"missing-eula-check-ready\"; else exit 1; fi'
-
-# 4. Confirm the password bridge succeeds before app startup
-docker run --rm --entrypoint bash \
-  -e ACCEPT_EULA=Y \
-  -e VsCodeServer__CodeServerAuthMode=password \
-  -e CODE_SERVER_PASSWORD=smoke-secret \
-  <hagicode-image> \
-  -lc 'code-server --version >/dev/null && echo \"bridge-ready\"'
-
-# 5. Confirm password auth fails fast when the secret is missing
-docker run --rm --entrypoint bash \
-  -e ACCEPT_EULA=Y \
-  -e VsCodeServer__CodeServerAuthMode=password \
-  <hagicode-image> \
-  -lc 'if [ -n \"$CODE_SERVER_PASSWORD$CODE_SERVER_HASHED_PASSWORD$PASSWORD$HASHED_PASSWORD\" ]; then exit 1; fi; echo \"missing-secret-check-ready\"'
-```
 
 ### Claude Code Configuration
 
