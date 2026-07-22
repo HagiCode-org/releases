@@ -20,16 +20,9 @@ This document describes all environment variables required or used by the HagiCo
 | `GITHUB_REPOSITORY` | GitHub repository in format `owner/repo` | Yes (CI) | `newbe36524/hagicode` |
 | `NUGEX_GitHubRepository` | Alternative way to pass GitHub repo (Nuke prefix) | No | Same as above |
 
-### Edge ACR (Azure Container Registry)
 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
-| `AZURE_ACR_USERNAME` | Edge ACR username for authentication | Yes (Docker push) | `hagicode` |
-| `NUGEX_AzureAcrUsername` | Alternative way to pass ACR username (Nuke prefix) | No | Same as above |
-| `AZURE_ACR_PASSWORD` | Edge ACR password or access token | Yes (Docker push) | `password_or_token` |
-| `NUGEX_AzureAcrPassword` | Alternative way to pass ACR password (Nuke prefix) | No | Same as above |
-| `AZURE_ACR_REGISTRY` | Edge ACR registry endpoint | Yes (Docker push) | `hagicode.azurecr.io` |
-| `NUGEX_AzureAcrRegistry` | Alternative way to pass ACR registry (Nuke prefix) | No | Same as above |
 
 ### Aliyun ACR (Aliyun Container Registry)
 
@@ -79,7 +72,7 @@ This document describes all environment variables required or used by the HagiCo
 When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to `true`:
 
 - Uses `docker buildx` for direct multi-architecture builds and pushes
-- Enables parallel push to multiple registries (Azure ACR, Aliyun ACR, DockerHub)
+- Enables parallel push to multiple registries (Aliyun ACR, DockerHub)
 - Provides failure isolation - one registry failure doesn't affect others
 - Falls back to single architecture (amd64) if registry doesn't support multi-arch
 
@@ -255,9 +248,6 @@ When using GitHub Actions, configure these secrets in your repository settings:
 
 1. `AZURE_BLOB_SAS_URL` - Azure Blob Storage SAS URL
 2. `GITHUB_TOKEN` - GitHub PAT with repo and workflow permissions
-3. `AZURE_ACR_USERNAME` - Edge ACR username
-4. `AZURE_ACR_PASSWORD` - Edge ACR password/token
-5. `AZURE_ACR_REGISTRY` - Edge ACR registry endpoint
 
 ### Optional Secrets (Aliyun ACR Push)
 
@@ -285,9 +275,6 @@ Set environment variables before running Nuke:
 # macOS/Linux
 export AZURE_BLOB_SAS_URL="https://..."
 export GITHUB_TOKEN="ghp_xxxxxx"
-export AZURE_ACR_USERNAME="hagicode"
-export AZURE_ACR_PASSWORD="password"
-export AZURE_ACR_REGISTRY="hagicode.azurecr.io"
 
 # Windows PowerShell
 $env:AZURE_BLOB_SAS_URL="https://..."
@@ -340,7 +327,6 @@ Use environment variables in docker-compose.yml:
 version: '3.8'
 services:
   hagicode:
-    image: hagicode.azurecr.io/hagicode:1.2.3
     environment:
       - ANTHROPIC_AUTH_TOKEN=sk-ant-...
       - SSH_PRIVATE_KEY_PATH=/runtime-secrets/id_ed25519
@@ -395,7 +381,6 @@ cp .env.secrets.local.example .env.secrets.local
 
 **Error**: `Failed to login to Edge ACR`
 
-**Solution**: Verify `AZURE_ACR_USERNAME`, `AZURE_ACR_PASSWORD`, and `AZURE_ACR_REGISTRY` are correct
 
 ### Claude Code Not Working
 
@@ -434,7 +419,6 @@ cp .env.secrets.local.example .env.secrets.local
 ## Additional Resources
 
 - [Azure Blob Storage Documentation](https://docs.microsoft.com/azure/storage/blobs/)
-- [Azure Container Registry Documentation](https://docs.microsoft.com/azure/container-registry/)
 - [GitHub Actions Secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets)
 - [Claude Code Documentation](https://claude.ai/code/docs)
 - [OpenSpec Documentation](https://openspec.dev/docs)

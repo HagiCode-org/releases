@@ -69,7 +69,7 @@ Automatic publishing now has a single entry point:
 
 - `./build.sh VersionMonitor` still discovers every unpublished Azure version, but it auto-selects only the newest unpublished version for the current run
 - GitHub Release automation starts only from `repository_dispatch` with event type `version-monitor-release`
-- Docker automation starts only from `repository_dispatch` with registry-specific event types (`version-monitor-docker-aliyun`, `version-monitor-docker-azure`, `version-monitor-docker-dockerhub`)
+- Docker automation starts only from `repository_dispatch` with registry-specific event types (`version-monitor-docker-aliyun`, `version-monitor-docker-dockerhub`)
 - Older unpublished versions are reported as deferred backlog for later scheduled runs or manual handling
 
 Manual reruns stay available, but they are explicit:
@@ -131,4 +131,4 @@ If `SSH_PRIVATE_KEY_PATH` is set but the file is missing, unreadable, or not a r
 
 ## Ecosystem role
 
-HagiCode Release takes outputs produced by repositories such as `repos/hagicode-core` and `repos/hagicode-desktop`, then publishes them to GitHub Releases, Azure ACR, Aliyun ACR, DockerHub, and related delivery channels.
+HagiCode Release takes outputs produced by repositories such as `repos/hagicode-core` and `repos/hagicode-desktop`, then publishes them to GitHub Releases, Aliyun ACR, DockerHub, and related delivery channels.

@@ -426,14 +426,12 @@ This repository uses Nuke for multi-architecture Docker builds:
 
 **Image Naming Convention**:
 - **Docker Hub**: `hagicode/hagicode:1.2.3` (manifest with both arches)
-- **Azure Container Registry**: `edgeacr.azurecr.io/hagicode/hagicode:1.2.3`
 - **Aliyun Container Registry**: `registry.cn-hangzhou.aliyuncs.com/hagicode/hagicode:1.2.3`
 
 **Registry Formats**:
 | Registry | Format Example |
 |----------|----------------|
 | Docker Hub | `hagicode/hagicode:version` |
-| ACR | `edgeacr.azurecr.io/hagicode/hagicode:version` |
 | Aliyun | `registry.cn-hangzhou.aliyuncs.com/hagicode/hagicode:version` |
 
 **Aliyun Registry Notes**:
@@ -679,7 +677,6 @@ When contributing to this repository:
 - [Docker Multi-Arch Builds](https://docs.docker.com/build/building/multi-platform/)
 
 ### Registries
-- [Azure Container Registry](https://azure.microsoft.com/services/container-registry/)
 - [Aliyun Container Registry](https://www.aliyun.com/product/acr)
 - [Docker Hub](https://hub.docker.com/)
 

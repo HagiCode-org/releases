@@ -108,4 +108,4 @@ volumes:
 
 ## 在生态中的角色
 
-HagiCode Release 接收 `repos/hagicode-core`、`repos/hagicode-desktop` 等仓库生成的构建产物，并把它们发布到 GitHub Releases、Azure ACR、阿里云 ACR、DockerHub 等交付渠道。
+HagiCode Release 接收 `repos/hagicode-core`、`repos/hagicode-desktop` 等仓库生成的构建产物，并把它们发布到 GitHub Releases、阿里云 ACR、DockerHub 等交付渠道。
