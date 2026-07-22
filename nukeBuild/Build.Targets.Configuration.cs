@@ -67,7 +67,6 @@ partial class Build
                 if (root != null)
                 {
                     LoadDockerConfiguration(root, config);
-                    LoadAzureAcrConfiguration(root, config);
                     LoadAliyunAcrConfiguration(root, config);
                     LoadDockerHubConfiguration(root, config);
                 }
@@ -97,21 +96,6 @@ partial class Build
         config.DockerIndependentBuild = GetYamlBoolValue(dockerNode, "independent_build", config.DockerIndependentBuild);
     }
 
-    /// Loads Azure ACR-specific configuration from the YAML node
-    
-    void LoadAzureAcrConfiguration(YamlMappingNode root, BuildConfiguration config)
-    {
-        var acrNode = root.Children.FirstOrDefault(x => x.Key.ToString() == "azure_acr").Value as YamlMappingNode;
-        if (acrNode == null) return;
-
-        config.AzureAcrRegistry = GetYamlStringValue(acrNode, "registry", config.AzureAcrRegistry);
-        config.AzureAcrNamespace = GetYamlStringValue(acrNode, "namespace", config.AzureAcrNamespace);
-        config.AzureAcrUsername = GetYamlStringValue(acrNode, "username", config.AzureAcrUsername);
-        config.AzureAcrPassword = GetYamlStringValue(acrNode, "password", config.AzureAcrPassword);
-    }
-
-    /// Loads Aliyun ACR-specific configuration from the YAML node
-    
     void LoadAliyunAcrConfiguration(YamlMappingNode root, BuildConfiguration config)
     {
         var acrNode = root.Children.FirstOrDefault(x => x.Key.ToString() == "aliyun_acr").Value as YamlMappingNode;
@@ -196,20 +180,6 @@ partial class Build
             warnings.Add($"Invalid Docker platform: {BuildConfig.DockerPlatform}. Valid values: {string.Join(", ", validPlatforms)}");
         }
 
-        // Validate Azure ACR configuration
-        if (!string.IsNullOrWhiteSpace(BuildConfig.AzureAcrRegistry))
-        {
-            if (string.IsNullOrWhiteSpace(BuildConfig.AzureAcrUsername))
-            {
-                errors.Add("Azure ACR username is required when registry is configured");
-            }
-
-            if (string.IsNullOrWhiteSpace(BuildConfig.AzureAcrPassword))
-            {
-                errors.Add("Azure ACR password is required when registry is configured");
-            }
-        }
-
         // Log warnings
         foreach (var warning in warnings)
         {
@@ -241,17 +211,6 @@ partial class Build
         Log.Information("  Docker Build Timeout: {Timeout}s", BuildConfig.DockerBuildTimeout);
         Log.Information("  Docker Force Rebuild: {ForceRebuild}", BuildConfig.DockerForceRebuild);
         Log.Information("  Docker Independent Build: {IndependentBuild}", BuildConfig.DockerIndependentBuild);
-
-        if (!string.IsNullOrEmpty(BuildConfig.AzureAcrRegistry))
-        {
-            Log.Information("  Azure ACR Registry: {Registry}", BuildConfig.AzureAcrRegistry);
-            Log.Information("  Azure ACR Username: {Username}",
-                string.IsNullOrEmpty(BuildConfig.AzureAcrUsername) ? "(not set)" : MaskSensitiveValue(BuildConfig.AzureAcrUsername));
-        }
-        else
-        {
-            Log.Information("  Azure ACR: (not configured)");
-        }
     }
 
     /// Masks sensitive values for logging
@@ -346,10 +305,6 @@ internal class BuildConfiguration
     public int DockerBuildTimeout { get; set; } = 3600;
     public bool DockerForceRebuild { get; set; } = false;
     public bool DockerIndependentBuild { get; set; } = false;
-    public string AzureAcrRegistry { get; set; } = string.Empty;
-    public string AzureAcrNamespace { get; set; } = string.Empty;
-    public string AzureAcrUsername { get; set; } = string.Empty;
-    public string AzureAcrPassword { get; set; } = string.Empty;
     public string AliyunAcrRegistry { get; set; } = "registry.cn-hangzhou.aliyuncs.com";
     public string AliyunAcrNamespace { get; set; } = "hagicode";
     public string AliyunAcrUsername { get; set; } = string.Empty;

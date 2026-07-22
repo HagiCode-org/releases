@@ -2,7 +2,7 @@ using Nuke.Common;
 using Serilog;
 using System.Diagnostics;
 
-/// Docker build targets - multi-architecture image building and Edge ACR publishing
+/// Docker build targets - multi-architecture image building and publishing
 ///
 /// This file is the main entry point for Docker-related build operations.
 /// It orchestrates the modular targets defined in separate partial class files:
@@ -44,36 +44,6 @@ partial class Build
     // ==========================================================================
     // Docker State Properties (with configuration management)
     // ==========================================================================
-    /// Gets the effective Edge ACR registry
-    /// Priority: Parameter > Environment > Config file > Default
-
-    /// Gets the effective Edge ACR username
-    /// Priority: Parameter > Environment > Config file > Default
-
-    string EffectiveAzureAcrUsername => GetEffectiveValue(
-        BuildConfig.AzureAcrUsername,
-        "NUGEX_AzureAcrUsername",
-        AzureAcrUsername);
-
-    /// Gets the effective Edge ACR password
-    /// Priority: Parameter > Environment > Config file > Default
-
-    string EffectiveAzureAcrPassword => GetEffectiveValue(
-        BuildConfig.AzureAcrPassword,
-        "NUGEX_AzureAcrPassword",
-        AzureAcrPassword);
-
-    /// Gets the effective Azure ACR namespace
-    /// Priority: Parameter > Environment > Config file > Default
-
-    string EffectiveAzureAcrNamespace => GetEffectiveValue(
-        BuildConfig.AzureAcrNamespace,
-        "NUGEX_AzureAcrNamespace",
-        AzureAcrNamespace ?? "");
-
-
-    /// Gets the effective Aliyun ACR username
-    /// Priority: Parameter > Environment > Config file > Default
 
     string EffectiveAliyunAcrUsername => GetEffectiveValue(
         BuildConfig.AliyunAcrUsername,

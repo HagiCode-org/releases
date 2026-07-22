@@ -25,18 +25,6 @@ internal partial class Build
     [Parameter("Feishu webhook URL for notifications")] [Secret]
     readonly string FeishuWebhookUrl = string.Empty;
 
-    [Parameter("Azure ACR username")] [Secret]
-    readonly string AzureAcrUsername = string.Empty;
-
-    [Parameter("Azure ACR password")] [Secret]
-    readonly string AzureAcrPassword = string.Empty;
-
-    [Parameter("Azure ACR registry endpoint")] [Secret]
-    readonly string AzureAcrRegistry = string.Empty;
-
-    [Parameter("Azure ACR namespace")] [Secret]
-    readonly string AzureAcrNamespace = string.Empty;
-
     [Parameter("Aliyun ACR username")] [Secret]
     readonly string AliyunAcrUsername = string.Empty;
 

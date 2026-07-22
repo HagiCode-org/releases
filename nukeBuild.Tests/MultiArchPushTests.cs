@@ -103,16 +103,6 @@ public class MultiArchPushTests
     #region Registry Capability Detection Tests
 
     [Fact]
-    public void RegistrySupportsMultiArch_AzureAcr_ReturnsTrue()
-    {
-        // Verify that Azure ACR is expected to support multi-arch
-        // Expected: Azure ACR supports multi-arch manifests
-
-        var result = DoesAzureAcrSupportMultiArch();
-        Assert.True(result, "Azure ACR should support multi-arch");
-    }
-
-    [Fact]
     public void RegistrySupportsMultiArch_AliyunAcr_ReturnsTrue()
     {
         // Verify that Aliyun ACR is expected to support multi-arch
@@ -238,12 +228,6 @@ public class MultiArchPushTests
         };
     }
 
-    private bool DoesAzureAcrSupportMultiArch()
-    {
-        // Azure ACR supports multi-arch manifests
-        return true;
-    }
-
     private bool DoesAliyunAcrSupportMultiArch()
     {
         // Aliyun ACR supports multi-arch manifests
@@ -259,7 +243,6 @@ public class MultiArchPushTests
     // RegistryType enum (mirrored from Build.TargetsDockerPush.cs)
     private enum RegistryType
     {
-        AzureAcr,
         AliyunAcr,
         DockerHub
     }

@@ -16,37 +16,9 @@ partial class Build
         .Unlisted()
         .Executes(() =>
         {
-            // Login using the adapter pattern
-            var adapter = new AzureAcrAdapter(this);
-            if (!adapter.IsConfigured)
-            {
-                Log.Warning("Edge ACR credentials not configured, skipping login");
-                return;
-            }
-
-            LoginToRegistry(adapter);
-
-            // Note: Aliyun ACR login is handled separately in DockerPush
-            // if needed in the future, can add here
+            LoginToAliyunAcr();
+            LoginToDockerHub();
         });
-
-
-    /// Logs in to Azure Container Registry
-    /// This is a specialized login method for Azure ACR
-    void LoginToAzureAcr()
-    {
-        var adapter = new AzureAcrAdapter(this);
-        if (!adapter.IsConfigured)
-        {
-            Log.Warning("Azure ACR credentials not configured, skipping login");
-            return;
-        }
-
-        LoginToRegistry(adapter);
-        Log.Information("Successfully logged in to Azure ACR");
-    }
-
-
     /// Logs in to Aliyun Container Registry
     /// This is a specialized login method for Aliyun ACR
     void LoginToAliyunAcr()

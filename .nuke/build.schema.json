@@ -32,7 +32,6 @@
         "GitHubRelease",
         "PushToAliyunAcr",
         "PushToAllRegistries",
-        "PushToAzureAcr",
         "PushToDockerHub",
         "VersionMonitor"
       ]
@@ -126,26 +125,6 @@
         "AliyunAcrUsername": {
           "type": "string",
           "description": "Aliyun ACR username",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
-        },
-        "AzureAcrNamespace": {
-          "type": "string",
-          "description": "Azure ACR namespace",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
-        },
-        "AzureAcrPassword": {
-          "type": "string",
-          "description": "Azure ACR password",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
-        },
-        "AzureAcrRegistry": {
-          "type": "string",
-          "description": "Azure ACR registry endpoint",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
-        },
-        "AzureAcrUsername": {
-          "type": "string",
-          "description": "Azure ACR username",
           "default": "Secrets must be entered via 'nuke :secrets [profile]'"
         },
         "AzureBlobSasUrl": {

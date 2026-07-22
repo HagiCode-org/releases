@@ -347,92 +347,6 @@ partial class Build
         }
     }
 
-    /// <summary>
-    /// Triggers Azure ACR Docker build workflow via repository_dispatch event.
-    /// Uses event_type "version-monitor-docker-azure" to trigger Azure ACR build.
-    ///
-    /// <param name="version">The version to build</param>
-    void TriggerDockerDispatchAzure(string version)
-    {
-        var repository = EffectiveGitHubRepository;
-        var dryRun = EffectiveDryRun;
-
-        Log.Information("Triggering Azure ACR Docker dispatch for version: {Version}", version);
-
-        if (dryRun)
-        {
-            Log.Warning("[DRY RUN] Would trigger Azure ACR Docker dispatch for version {Version}", version);
-            return;
-        }
-
-        try
-        {
-            var requestBody = JsonSerializer.Serialize(new
-            {
-                event_type = "version-monitor-docker-azure",
-                client_payload = new
-                {
-                    version = version
-                }
-            });
-
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = "gh",
-                ArgumentList =
-                {
-                    "api",
-                    "--method", "POST",
-                    "-H", "Accept: application/vnd.github.v3+json",
-                    "-H", "Content-Type: application/json",
-                    $"/repos/{repository}/dispatches",
-                    "--input", "-"
-                },
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                Environment =
-                {
-                    ["GH_TOKEN"] = EffectiveGitHubToken
-                }
-            };
-
-            using var process = Process.Start(processInfo);
-            if (process == null)
-            {
-                throw new Exception("Failed to start gh process");
-            }
-
-            process.StandardInput.Write(requestBody);
-            process.StandardInput.Close();
-
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                throw new Exception($"gh api dispatch failed: {error}");
-            }
-
-            Log.Information("Successfully triggered Azure ACR Docker workflow for version {Version}", version);
-
-            VerifyDispatchCreated(version, repository);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to trigger Azure ACR Docker dispatch for version {Version}", version);
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Triggers DockerHub Docker build workflow via repository_dispatch event.
-    /// Uses event_type "version-monitor-docker-dockerhub" to trigger DockerHub build.
-    ///
-    /// <param name="version">The version to build</param>
     void TriggerDockerDispatchDockerHub(string version)
     {
         var repository = EffectiveGitHubRepository;
@@ -513,8 +427,7 @@ partial class Build
     /// Triggers Docker build workflows via repository_dispatch events.
     /// Triggers three independent events for all configured registries:
     /// - version-monitor-docker-aliyun: triggers Aliyun ACR build
-    /// - version-monitor-docker-azure: triggers Azure ACR build
-    /// - version-monitor-docker-dockerhub: triggers DockerHub build
+    /// -     /// - version-monitor-docker-dockerhub: triggers DockerHub build
     ///
     /// <param name="version">The version to build</param>
     void TriggerDockerDispatch(string version)
@@ -538,18 +451,6 @@ partial class Build
             failCount++;
         }
 
-        // Azure ACR dispatch
-        try
-        {
-            TriggerDockerDispatchAzure(version);
-            successCount++;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to trigger Azure ACR Docker dispatch for version {Version}", version);
-            failCount++;
-        }
-
         // DockerHub dispatch
         try
         {
@@ -563,20 +464,20 @@ partial class Build
         }
 
         // If all dispatches failed, throw an exception
-        if (failCount == 3)
+        if (failCount == 2)
         {
-            Log.Error("All Docker dispatches failed for version {Version} ({FailCount}/3 failed)", version, failCount);
+            Log.Error("All Docker dispatches failed for version {Version} ({FailCount}/2 failed)", version, failCount);
             throw new Exception($"All Docker dispatches failed for version {version}");
         }
 
         if (failCount > 0)
         {
-            Log.Warning("Docker dispatch partially succeeded for version {Version}: {SuccessCount}/3 succeeded, {FailCount}/3 failed",
+            Log.Warning("Docker dispatch partially succeeded for version {Version}: {SuccessCount}/2 succeeded, {FailCount}/2 failed",
                 version, successCount, failCount);
         }
         else
         {
-            Log.Information("All Docker dispatches succeeded for version {Version} (3/3)", version);
+            Log.Information("All Docker dispatches succeeded for version {Version} (2/2)", version);
         }
     }
 

@@ -11,9 +11,6 @@ using Serilog;
         nameof(AzureBlobSasUrl),
         nameof(FeishuWebhookUrl),
         nameof(GitHubToken),
-        nameof(AzureAcrUsername),
-        nameof(AzureAcrPassword),
-        nameof(AzureAcrRegistry)
     },
     EnableGitHubToken = false,
     AutoGenerate = false)]
@@ -61,28 +58,6 @@ partial class Build : Nuke.Common.NukeBuild
             Log.Information("Aliyun ACR push completed successfully");
         });
 
-    /// Push to Azure ACR target - builds and pushes Docker images to Azure Container Registry only
-    Target PushToAzureAcr => _ => _
-        .Description("Builds and pushes Docker images to Azure Container Registry only")
-        .DependsOn(DetermineBuildConfig)
-        .DependsOn(Download)
-        .Executes(() =>
-        {
-            var version = EffectiveBuildVersion;
-            var dockerImageInfo =
-                new DockerImageInfo("hagicode.azurecr.io", "", "hagicode");
-
-            var platforms = new List<string> { "linux/amd64", "linux/arm64" };
-            LoginToAzureAcr();
-            BuildApplicationImage(dockerImageInfo,
-                version,
-                platforms,
-                pushToRegistry: true);
-            RetagImages(dockerImageInfo, version);
-            Log.Information("Starting Azure ACR push for version: {Version}", version);
-            Log.Information("Azure ACR push completed successfully");
-        });
-
 
     /// Push to DockerHub target - builds and pushes Docker images to DockerHub only
 
@@ -108,8 +83,7 @@ partial class Build : Nuke.Common.NukeBuild
 
 
     Target PushToAllRegistries => _ => _
-        .Description("Builds and pushes Docker images to all configured registries (Azure ACR, Aliyun ACR, DockerHub)")
+        .Description("Builds and pushes Docker images to all configured registries (Aliyun ACR, DockerHub)")
         .DependsOn(PushToAliyunAcr)
-        .DependsOn(PushToAzureAcr)
-        .DependsOn(PushToDockerHub);
+                .DependsOn(PushToDockerHub);
 }

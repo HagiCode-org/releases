@@ -4,7 +4,7 @@ using System.Diagnostics;
 /// Docker image push target
 ///
 /// This partial class provides Docker image push functionality to multiple registries.
-/// Uses adapter pattern for flexible registry support (Azure ACR, Aliyun ACR, DockerHub).
+/// Uses adapter pattern for flexible registry support (Aliyun ACR, DockerHub).
 /// Includes login, push, verification, and retry logic with exponential backoff.
 partial class Build
 {
@@ -70,7 +70,6 @@ partial class Build
 
     string GetRegistryForAdapter(IRegistryAdapter adapter) => adapter.Type switch
     {
-        RegistryType.AzureAcr => "hagicode.azurecr.io",
         RegistryType.AliyunAcr => "registry.cn-hangzhou.aliyuncs.com",
         RegistryType.DockerHub => "docker.io",
         _ => throw new ArgumentOutOfRangeException(nameof(adapter.Type))
@@ -79,7 +78,6 @@ partial class Build
 
     enum RegistryType
     {
-        AzureAcr,
         AliyunAcr,
         DockerHub
     }
@@ -100,39 +98,6 @@ partial class Build
         (string username, string password) GetCredentials();
     }
 
-    /// Adapter for Azure Container Registry (ACR)
-    /// Handles image path building and credential retrieval for Azure ACR
-    /// Path format: {registry}/{image}
-    /// Example: hagicode.azurecr.io/hagicode
-    /// Adapter for Azure Container Registry (ACR)
-    /// Handles image path building and credential retrieval for Azure ACR
-    /// Path format: {registry}/{namespace}/{image} or {registry}/{image} if namespace is empty
-    /// Examples: hagicode.azurecr.io/hagicode/hagicode:latest or hagicode.azurecr.io/hagicode:latest
-    class AzureAcrAdapter : IRegistryAdapter
-    {
-        private readonly Build _build;
-
-        public AzureAcrAdapter(Build build)
-        {
-            _build = build;
-        }
-
-        public RegistryType Type => RegistryType.AzureAcr;
-
-        public (string username, string password) GetCredentials()
-        {
-            return (_build.EffectiveAzureAcrUsername, _build.EffectiveAzureAcrPassword);
-        }
-
-        public bool IsConfigured =>
-            !string.IsNullOrWhiteSpace(_build.EffectiveAzureAcrUsername) &&
-            !string.IsNullOrWhiteSpace(_build.EffectiveAzureAcrPassword);
-    }
-
-    /// Adapter for Aliyun Container Registry (ACR)
-    /// Handles image path building and credential retrieval for Aliyun ACR
-    /// Path format: {registry}/{namespace}/{image}
-    /// Example: registry.cn-hangzhou.aliyuncs.com/hagicode/hagicode
     class AliyunAcrAdapter : IRegistryAdapter
     {
         private readonly Build _build;

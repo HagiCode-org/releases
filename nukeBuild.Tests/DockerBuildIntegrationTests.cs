@@ -413,8 +413,7 @@ public class DockerBuildIntegrationTests
 
     [Theory]
     [InlineData(".github/workflows/docker-build-aliyun-acr.yml", "version-monitor-docker-aliyun")]
-    [InlineData(".github/workflows/docker-build-azure-acr.yml", "version-monitor-docker-azure")]
-    [InlineData(".github/workflows/docker-build-dockerhub.yml", "version-monitor-docker-dockerhub")]
+        [InlineData(".github/workflows/docker-build-dockerhub.yml", "version-monitor-docker-dockerhub")]
     public void DockerWorkflows_ShouldRemoveTagPushAndResolveVersionConsistently(
         string workflowPath,
         string dispatchType)

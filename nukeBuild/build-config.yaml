@@ -20,19 +20,6 @@ docker:
   # When enabled, uses docker buildx build --push instead of export/import
   independent_build: false
 
-azure_acr:
-  # Azure Container Registry endpoint (e.g., hagicode.azurecr.io)
-  registry: "hagicode.azurecr.io"
-
-  # Azure Container Registry namespace (optional)
-  namespace: ""
-
-  # Azure Container Registry username
-  username: ""
-
-  # Azure Container Registry password
-  password: ""
-
 aliyun_acr:
   # Aliyun Container Registry endpoint (e.g., registry.cn-hangzhou.aliyuncs.com)
   registry: "registry.cn-hangzhou.aliyuncs.com"

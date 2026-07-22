@@ -106,11 +106,11 @@ public class ConfigurationTests
     }
 
     [Fact]
-    public void LoadAzureAcrConfiguration_ShouldParse_AllAcrSettings()
+    public void LoadRegistryConfiguration_ShouldParse_AllConfiguredSettings()
     {
-        // Verify all Azure ACR settings are parsed from YAML
+        // Verify registry settings are parsed from YAML
         // Expected: registry, username, password
 
-        Assert.True(true, "Test verifies Azure ACR configuration parsing");
+        Assert.True(true, "Test verifies registry configuration parsing");
     }
 }
