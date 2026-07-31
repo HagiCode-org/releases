@@ -18,7 +18,7 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 
 ## Main areas
 
-- `nukeBuild/` - release automation targets and shared build logic
+- `pybuild/` - Python Invoke release automation engine and compatibility bridge
 - `.github/workflows/` - CI/CD pipelines for monitoring and publishing
 - `docker_deployment/` - container build context, Dockerfiles, and entrypoint scripts
 - `output/` - generated artifacts during local release work
@@ -32,11 +32,11 @@ This repository connects version discovery, GitHub Releases, and multi-registry 
 ./build.sh DockerRelease --ReleaseVersion "1.2.3" --DockerPlatform "all"
 ```
 
-Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release.
+Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release. The root wrappers run `python -m pybuild.entry`; direct Invoke remains available with `python -m invoke -c tasks <task>`.
 
 ## Local container build and test
 
-The repository now also ships a local `docker compose` workflow that reuses the existing Nuke-driven build-context generation instead of bypassing it:
+The repository also ships a local `docker compose` workflow that reuses the PyBuild/Invoke build-context generation instead of bypassing it:
 
 ```bash
 cp .env.local.example .env.local

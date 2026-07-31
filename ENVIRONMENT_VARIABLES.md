@@ -4,21 +4,25 @@ This document describes all environment variables required or used by the HagiCo
 
 ## Required Environment Variables
 
-### Azure Blob Storage
+### Release Package Source
 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
-| `AZURE_BLOB_SAS_URL` | Azure Blob Storage SAS URL for downloading application packages | Yes | `https://hagicode.blob.core.windows.net/packages?sp=...` |
-| `NUGEX_AzureBlobSasUrl` | Alternative way to pass Azure Blob SAS URL (Nuke prefix) | No | Same as above |
+| `RELEASE_PACKAGE_INDEX_URL` | Primary published package `index.json` URL for Version Monitor and package downloads | Yes, unless using legacy Azure SAS fallback | `https://Dl-server.hagicode.com/index.json` |
+| `NUGEX_ReleasePackageIndexUrl` | Backward-compatible legacy package index URL override | No | Same as above |
+| `RELEASE_PACKAGE_BASE_URL` | Optional base URL used when index assets contain relative paths such as `{version}/{fileName}` | No | `https://Dl-server.hagicode.com/` |
+| `NUGEX_ReleasePackageBaseUrl` | Backward-compatible legacy package base URL override | No | Same as above |
+| `AZURE_BLOB_SAS_URL` | Legacy Azure Blob Storage SAS URL fallback for package source discovery and downloads | Fallback only | `https://hagicode.blob.core.windows.net/packages?sp=...` |
+| `NUGEX_AzureBlobSasUrl` | Backward-compatible legacy Azure Blob SAS fallback | Fallback only | Same as above |
 
 ### GitHub Integration
 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
 | `GITHUB_TOKEN` | GitHub personal access token for creating releases | Yes | `ghp_xxxxxxxxxxxxxxxxxxxx` |
-| `NUGEX_GitHubToken` | Alternative way to pass GitHub token (Nuke prefix) | No | Same as above |
+| `NUGEX_GitHubToken` | Backward-compatible way to pass GitHub token | No | Same as above |
 | `GITHUB_REPOSITORY` | GitHub repository in format `owner/repo` | Yes (CI) | `newbe36524/hagicode` |
-| `NUGEX_GitHubRepository` | Alternative way to pass GitHub repo (Nuke prefix) | No | Same as above |
+| `NUGEX_GitHubRepository` | Backward-compatible way to pass GitHub repo | No | Same as above |
 
 
 | Variable | Description | Required | Example |
@@ -29,11 +33,11 @@ This document describes all environment variables required or used by the HagiCo
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
 | `ALIYUN_ACR_USERNAME` | Aliyun ACR username for authentication | No (optional push) | `your-username` |
-| `NUGEX_AliyunAcrUsername` | Alternative way to pass Aliyun ACR username (Nuke prefix) | No | Same as above |
+| `NUGEX_AliyunAcrUsername` | Alternative way to pass Aliyun ACR username (PyBuild/Invoke prefix) | No | Same as above |
 | `ALIYUN_ACR_PASSWORD` | Aliyun ACR password or access token | No (optional push) | `your-password` |
-| `NUGEX_AliyunAcrPassword` | Alternative way to pass Aliyun ACR password (Nuke prefix) | No | Same as above |
+| `NUGEX_AliyunAcrPassword` | Alternative way to pass Aliyun ACR password (PyBuild/Invoke prefix) | No | Same as above |
 | `ALIYUN_ACR_REGISTRY` | Aliyun ACR registry endpoint | No (optional push) | `registry.cn-hangzhou.aliyuncs.com` |
-| `NUGEX_AliyunAcrRegistry` | Alternative way to pass Aliyun ACR registry (Nuke prefix) | No | Same as above |
+| `NUGEX_AliyunAcrRegistry` | Alternative way to pass Aliyun ACR registry (PyBuild/Invoke prefix) | No | Same as above |
 | `ALIYUN_ACR_NAMESPACE` | Aliyun ACR namespace for image path | No | `hagicode` |
 
 ### DockerHub
@@ -41,9 +45,9 @@ This document describes all environment variables required or used by the HagiCo
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
 | `DOCKERHUB_USERNAME` | DockerHub username for authentication | No (optional push) | `your-username` |
-| `NUGEX_DockerHubUsername` | Alternative way to pass DockerHub username (Nuke prefix) | No | Same as above |
+| `NUGEX_DockerHubUsername` | Alternative way to pass DockerHub username (PyBuild/Invoke prefix) | No | Same as above |
 | `DOCKERHUB_TOKEN` | DockerHub access token (not password) | No (optional push) | `dckr_pat_...` |
-| `NUGEX_DockerHubToken` | Alternative way to pass DockerHub token (Nuke prefix) | No | Same as above |
+| `NUGEX_DockerHubToken` | Alternative way to pass DockerHub token (PyBuild/Invoke prefix) | No | Same as above |
 
 **Note**: DockerHub access tokens can be created at https://hub.docker.com/settings/security
 
@@ -52,7 +56,7 @@ This document describes all environment variables required or used by the HagiCo
 | Variable | Description | Required | Default | Example |
 |----------|-------------|-----------|----------|
 | `DOCKER_PLATFORM` | Target platform(s) for Docker build | No | `all` |
-| `NUGEX_DockerPlatform` | Alternative way to pass Docker platform (Nuke prefix) | No | Same as above |
+| `NUGEX_DockerPlatform` | Alternative way to pass Docker platform (PyBuild/Invoke prefix) | No | Same as above |
 
 **Accepted values**:
 - `all` - Build for both linux/amd64 and linux/arm64 (default)
@@ -81,7 +85,7 @@ When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
 | `RELEASE_VERSION` | Version to release (e.g., 1.2.3) | Yes (manual) | `1.2.3` |
-| `NUGEX_ReleaseVersion` | Alternative way to pass release version (Nuke prefix) | No | Same as above |
+| `NUGEX_ReleaseVersion` | Alternative way to pass release version (PyBuild/Invoke prefix) | No | Same as above |
 
 ### Notification
 
@@ -246,8 +250,12 @@ When using GitHub Actions, configure these secrets in your repository settings:
 
 ### Required Secrets
 
-1. `AZURE_BLOB_SAS_URL` - Azure Blob Storage SAS URL
+1. `RELEASE_PACKAGE_INDEX_URL` - Primary published package `index.json` URL
 2. `GITHUB_TOKEN` - GitHub PAT with repo and workflow permissions
+
+### Legacy Fallback Secret
+
+1. `AZURE_BLOB_SAS_URL` - Azure Blob Storage SAS URL, used only when the primary package index URL is not configured
 
 ### Optional Secrets (Aliyun ACR Push)
 
@@ -269,24 +277,26 @@ When using GitHub Actions, configure these secrets in your repository settings:
 
 ### Local Development
 
-Set environment variables before running Nuke:
+Set environment variables before running PyBuild/Invoke:
 
 ```bash
 # macOS/Linux
-export AZURE_BLOB_SAS_URL="https://..."
+export RELEASE_PACKAGE_INDEX_URL="https://Dl-server.hagicode.com/index.json"
+export RELEASE_PACKAGE_BASE_URL="https://Dl-server.hagicode.com/"
 export GITHUB_TOKEN="ghp_xxxxxx"
 
 # Windows PowerShell
-$env:AZURE_BLOB_SAS_URL="https://..."
+$env:RELEASE_PACKAGE_INDEX_URL="https://Dl-server.hagicode.com/index.json"
+$env:RELEASE_PACKAGE_BASE_URL="https://Dl-server.hagicode.com/"
 $env:GITHUB_TOKEN="ghp_xxxxxx"
 
 # Run build
 ./build.sh DockerRelease --ReleaseVersion "1.2.3"
 ```
 
-### Nuke Parameters
+### PyBuild/Invoke Parameters
 
-Pass environment variables using Nuke's parameter syntax:
+Pass environment variables using PyBuild/Invoke's parameter syntax:
 
 ```bash
 ./build.sh DockerRelease \

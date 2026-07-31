@@ -18,7 +18,7 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 ## 主要目录
 
-- `nukeBuild/` - 发布自动化目标与共享构建逻辑
+- `pybuild/` - Python Invoke 发布自动化引擎与兼容入口
 - `.github/workflows/` - 监控与发布相关的 CI/CD 流水线
 - `docker_deployment/` - 容器构建上下文、Dockerfile 与入口脚本
 - `output/` - 本地发布过程生成的产物
@@ -32,11 +32,11 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 ./build.sh DockerRelease --ReleaseVersion "1.2.3" --DockerPlatform "all"
 ```
 
-准备真实发布时，请结合 `ENVIRONMENT_VARIABLES.md` 配置对应的凭据与 Registry 参数。
+准备真实发布时，请结合 `ENVIRONMENT_VARIABLES.md` 配置对应的凭据与 Registry 参数。根 wrapper 会运行 `python -m pybuild.entry`；也可以直接使用 `python -m invoke -c tasks <task>`。
 
 ## 本地容器构建与测试
 
-仓库根目录现在额外提供了一套面向本地调试的 `docker compose` 工作流，不会绕开现有 Nuke build context 生成逻辑：
+仓库根目录提供了一套面向本地调试的 `docker compose` 工作流，不会绕开 PyBuild/Invoke build context 生成逻辑：
 
 ```bash
 cp .env.local.example .env.local
