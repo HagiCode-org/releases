@@ -33,6 +33,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Resolve release version
         id: resolve-version
         shell: bash
@@ -70,8 +75,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          NUGEX_ReleaseVersion: ${{ steps.resolve-version.outputs.version }}
-          NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          RELEASE_VERSION: ${{ steps.resolve-version.outputs.version }}
+          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
         run: |
           ./build.sh GitHubRelease
 

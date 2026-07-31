@@ -31,8 +31,6 @@ on:
 permissions:
   contents: write  # Required for uploading release assets
 
-env:
-  DOTNET_VERSION: '10.0'
 
 jobs:
   docker-build-aliyun-acr:
@@ -43,10 +41,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          python-version: '3.12'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -99,25 +97,26 @@ jobs:
           echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker Images (Nuke)
+      - name: Build Docker Images (Invoke)
         env:
-          NUGEX_ReleaseVersion: ${{ steps.resolve-inputs.outputs.version }}
-          NUGEX_DockerPlatform: ${{ steps.resolve-inputs.outputs.platform }}
-          NUGEX_DryRun: ${{ steps.resolve-inputs.outputs.dry_run }}
-          NUGEX_AzureBlobSasUrl: ${{ secrets.AZURE_BLOB_SAS_URL }}
-          NUGEX_AliyunAcrRegistry: ${{ secrets.ALIYUN_ACR_REGISTRY }}
-          NUGEX_AliyunAcrUsername: ${{ secrets.ALIYUN_ACR_USERNAME }}
-          NUGEX_AliyunAcrPassword: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.resolve-inputs.outputs.version }}
+          DOCKER_PLATFORM: ${{ steps.resolve-inputs.outputs.platform }}
+          DRY_RUN: ${{ steps.resolve-inputs.outputs.dry_run }}
+          RELEASE_PACKAGE_INDEX_URL: ${{ secrets.RELEASE_PACKAGE_INDEX_URL }}
+          RELEASE_PACKAGE_BASE_URL: ${{ secrets.RELEASE_PACKAGE_BASE_URL }}
+          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          ALIYUN_ACR_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          ALIYUN_ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
         run: |
           ./build.sh PushToAliyunAcr
 
       - name: Summary
         env:
-          NUGEX_ReleaseVersion: ${{ steps.resolve-inputs.outputs.version }}
-          NUGEX_DockerPlatform: ${{ steps.resolve-inputs.outputs.platform }}
+          RELEASE_VERSION: ${{ steps.resolve-inputs.outputs.version }}
+          DOCKER_PLATFORM: ${{ steps.resolve-inputs.outputs.platform }}
         run: |
-          cd nukeBuild
-
+          
           VERSION="${{ steps.resolve-inputs.outputs.version }}"
           PLATFORM="${{ steps.resolve-inputs.outputs.platform }}"
           DRY_RUN="${{ steps.resolve-inputs.outputs.dry_run }}"
