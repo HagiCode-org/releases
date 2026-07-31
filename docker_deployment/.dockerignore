@@ -6,9 +6,6 @@
 # Build outputs (exclude root output directory, but allow docker-build-context)
 output/
 !output/docker-build-context/
-nukeBuild/.nuke/
-nukeBuild/bin/
-nukeBuild/obj/
 
 # IDE files
 .vs/

@@ -1,4 +1,4 @@
-# Nuke Build Configuration
+# PyBuild/Invoke Build Configuration
 # This file contains default build parameters that can be overridden by:
 # 1. Environment variables (prefix with NUGEX_)
 # 2. Command line arguments

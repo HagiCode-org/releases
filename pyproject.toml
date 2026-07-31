@@ -1,0 +1,16 @@
+[project]
+name = "hagicode-release-invoke"
+version = "0.1.0"
+description = "Python Invoke release automation for hagicode-release"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "invoke==2.2.0",
+  "PyYAML==6.0.2",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pybuild"]
