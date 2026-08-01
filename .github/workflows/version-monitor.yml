@@ -46,27 +46,11 @@ jobs:
         env:
           RELEASE_PACKAGE_INDEX_URL: ${{ secrets.RELEASE_PACKAGE_INDEX_URL }}
           RELEASE_PACKAGE_BASE_URL: ${{ secrets.RELEASE_PACKAGE_BASE_URL }}
-          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           ./build.sh VersionMonitor
-
-      - name: Create issue on failure
-        if: failure()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue create \
-            --title "Version Monitor Failed - $(date -u +'%Y-%m-%d %H:%M:%S UTC')" \
-            --label "bug,automation" \
-            --body "Version Monitor workflow failed at $(date -u +'%Y-%m-%d %H:%M:%S UTC')."
-
-          **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-          Please check the logs for more details." \
-            --repo "${{ github.repository }}" || echo "Failed to create issue"
 
       - name: Send Feishu Notification
         id: feishu-notify

@@ -104,7 +104,6 @@ jobs:
           DRY_RUN: ${{ steps.resolve-inputs.outputs.dry_run }}
           RELEASE_PACKAGE_INDEX_URL: ${{ secrets.RELEASE_PACKAGE_INDEX_URL }}
           RELEASE_PACKAGE_BASE_URL: ${{ secrets.RELEASE_PACKAGE_BASE_URL }}
-          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
           ALIYUN_ACR_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
           ALIYUN_ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
           ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}

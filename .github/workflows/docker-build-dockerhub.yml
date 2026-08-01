@@ -104,7 +104,6 @@ jobs:
           DRY_RUN: ${{ steps.resolve-inputs.outputs.dry_run }}
           RELEASE_PACKAGE_INDEX_URL: ${{ secrets.RELEASE_PACKAGE_INDEX_URL }}
           RELEASE_PACKAGE_BASE_URL: ${{ secrets.RELEASE_PACKAGE_BASE_URL }}
-          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
         run: |

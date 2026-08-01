@@ -76,7 +76,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           RELEASE_VERSION: ${{ steps.resolve-version.outputs.version }}
-          AZURE_BLOB_SAS_URL: ${{ secrets.AZURE_BLOB_SAS_URL }}
+          RELEASE_PACKAGE_INDEX_URL: ${{ secrets.RELEASE_PACKAGE_INDEX_URL }}
+          RELEASE_PACKAGE_BASE_URL: ${{ secrets.RELEASE_PACKAGE_BASE_URL }}
         run: |
           ./build.sh GitHubRelease
 
