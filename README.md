@@ -51,7 +51,6 @@ cp .env.secrets.local.example .env.secrets.local
 - `docker-compose.local.yml` uses the local image tag from `HAGICODE_LOCAL_IMAGE` and publishes the app to `127.0.0.1:5000` by default
 - Local persistence stays under `./.local/hagicode/data` and `./.local/hagicode/saves`
 - Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
-- When `AZURE_BLOB_SAS_URL` is set, `scripts/docker-local-build.sh` downloads the requested version/platform package first; otherwise it reuses matching zip packages already present in `output/download`
 - Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
 - `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests the HagiScript-synced runtime baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, and `codex` inside the running container
 

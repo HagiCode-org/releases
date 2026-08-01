@@ -8,12 +8,10 @@ This document describes all environment variables required or used by the HagiCo
 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
-| `RELEASE_PACKAGE_INDEX_URL` | Primary published package `index.json` URL for Version Monitor and package downloads | Yes, unless using legacy Azure SAS fallback | `https://Dl-server.hagicode.com/index.json` |
+| `RELEASE_PACKAGE_INDEX_URL` | Primary published package `index.json` URL for Version Monitor and package downloads | Yes | `https://Dl-server.hagicode.com/index.json` |
 | `NUGEX_ReleasePackageIndexUrl` | Backward-compatible legacy package index URL override | No | Same as above |
 | `RELEASE_PACKAGE_BASE_URL` | Optional base URL used when index assets contain relative paths such as `{version}/{fileName}` | No | `https://Dl-server.hagicode.com/` |
 | `NUGEX_ReleasePackageBaseUrl` | Backward-compatible legacy package base URL override | No | Same as above |
-| `AZURE_BLOB_SAS_URL` | Legacy Azure Blob Storage SAS URL fallback for package source discovery and downloads | Fallback only | `https://hagicode.blob.core.windows.net/packages?sp=...` |
-| `NUGEX_AzureBlobSasUrl` | Backward-compatible legacy Azure Blob SAS fallback | Fallback only | Same as above |
 
 ### GitHub Integration
 
@@ -253,10 +251,6 @@ When using GitHub Actions, configure these secrets in your repository settings:
 1. `RELEASE_PACKAGE_INDEX_URL` - Primary published package `index.json` URL
 2. `GITHUB_TOKEN` - GitHub PAT with repo and workflow permissions
 
-### Legacy Fallback Secret
-
-1. `AZURE_BLOB_SAS_URL` - Azure Blob Storage SAS URL, used only when the primary package index URL is not configured
-
 ### Optional Secrets (Aliyun ACR Push)
 
 1. `ALIYUN_ACR_USERNAME` - Aliyun ACR username
@@ -300,7 +294,6 @@ Pass environment variables using PyBuild/Invoke's parameter syntax:
 
 ```bash
 ./build.sh DockerRelease \
-  --AzureBlobSasUrl "https://..." \
   --ReleaseVersion "1.2.3" \
   --DockerPlatform "all"
 ```
@@ -366,8 +359,8 @@ cp .env.secrets.local.example .env.secrets.local
 ```
 
 - `docker-compose.local.yml` expects a locally built image tag from `HAGICODE_LOCAL_IMAGE`
-- `.env.local.example` captures the local-only knobs such as `HAGICODE_RELEASE_VERSION`, `HAGICODE_DOCKER_PLATFORM`, `AZURE_BLOB_SAS_URL`, and bind ports
-- `.env.secrets.local` is an optional gitignored plaintext override loaded after `.env.local`; use it for local-only SAS URLs, API keys, or registry credentials without changing GitHub Actions secrets
+- `.env.local.example` captures the local-only knobs such as `HAGICODE_RELEASE_VERSION`, `HAGICODE_DOCKER_PLATFORM`, and bind ports
+- `.env.secrets.local` is an optional gitignored plaintext override loaded after `.env.local`; use it for local-only API keys or registry credentials without changing GitHub Actions secrets
 - Local bind-mounted state lives under `./.local/hagicode/data` and `./.local/hagicode/saves`
 - The local Docker image build still reaches out to Docker Hub, `dot.net`, GitHub, and npm unless equivalent mirrors or caches are already available on the host
 
@@ -378,14 +371,6 @@ cp .env.secrets.local.example .env.secrets.local
 3. **Rotate credentials regularly**: Update secrets periodically
 4. **Use service principals**: For Azure, use managed identities where possible
 5. **Audit secret access**: Monitor who has access to repository secrets
-
-## Troubleshooting
-
-### Missing Environment Variables
-
-**Error**: `Azure Blob SAS URL is not specified`
-
-**Solution**: Set `AZURE_BLOB_SAS_URL` or `NUGEX_AzureBlobSasUrl`
 
 ### Authentication Errors
 

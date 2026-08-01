@@ -260,7 +260,7 @@ Legacy wrapper target names map to Invoke tasks:
 
 ### Parameters and Environment
 
-Prefer canonical environment names such as `RELEASE_VERSION`, `DOCKER_PLATFORM`, `RELEASE_PACKAGE_INDEX_URL`, `RELEASE_PACKAGE_BASE_URL`, `AZURE_BLOB_SAS_URL`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `ALIYUN_ACR_*`, and `DOCKERHUB_*`.
+Prefer canonical environment names such as `RELEASE_VERSION`, `DOCKER_PLATFORM`, `RELEASE_PACKAGE_INDEX_URL`, `RELEASE_PACKAGE_BASE_URL`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `ALIYUN_ACR_*`, and `DOCKERHUB_*`.
 
 Backward-compatible `NUGEX_*` aliases remain accepted for existing workflows and scripts. CLI parameters also accept legacy PascalCase forms, for example `--ReleaseVersion` and `--DockerPlatform`.
 
@@ -268,7 +268,7 @@ Backward-compatible `NUGEX_*` aliases remain accepted for existing workflows and
 
 The local scripts under `scripts/` continue to call the root wrapper:
 
-1. `scripts/docker-local-build.sh` calls `Download` when package credentials are available.
+1. `scripts/docker-local-build.sh` reuses matching packages already present in `output/download`; it does not download on its own.
 2. It then calls `DockerPrepareLocalContext`.
 3. It builds `output/docker-build-context` with `docker buildx build --load` for local Compose use.
 

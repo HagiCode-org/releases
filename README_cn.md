@@ -51,7 +51,6 @@ cp .env.secrets.local.example .env.secrets.local
 - `docker-compose.local.yml` 使用本地镜像标签 `HAGICODE_LOCAL_IMAGE`，默认把应用发布到 `127.0.0.1:5000`
 - 本地持久化目录固定落在 `./.local/hagicode/data` 与 `./.local/hagicode/saves`
 - 本地专用的明文凭据建议放在 `.env.secrets.local`；本地脚本会在 `.env.local` 之后加载它，`build.sh` / `build.ps1` 在非 GitHub Actions 环境下也会自动加载
-- 如果设置了 `AZURE_BLOB_SAS_URL`，`scripts/docker-local-build.sh` 会先下载指定版本和平台的包；否则会复用 `output/download` 中已经存在的 zip 包
 - 本地镜像构建仍然依赖 Docker Hub、`dot.net`、GitHub 与 npm 的出站访问，除非你的机器已经准备好了等价的镜像源或缓存
 - `scripts/docker-local-test.sh` 会等待 HTTP 就绪，并额外检查 HagiScript 同步后的运行时基线：`hagiscript`、`claude`、`openspec`、`skills`、`opencode` 与 `codex` 是否都能在容器内执行
 
