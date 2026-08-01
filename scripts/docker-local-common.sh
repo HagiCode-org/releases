@@ -94,7 +94,6 @@ load_local_env() {
     export HAGICODE_LOCAL_IMAGE="${HAGICODE_LOCAL_IMAGE:-hagicode-local:${HAGICODE_RELEASE_VERSION:-dev}}"
     export HAGICODE_LOCAL_CONTAINER_NAME="${HAGICODE_LOCAL_CONTAINER_NAME:-hagicode-local}"
     export NUGEX_ReleaseVersion="${NUGEX_ReleaseVersion:-${HAGICODE_RELEASE_VERSION:-}}"
-    export NUGEX_AzureBlobSasUrl="${NUGEX_AzureBlobSasUrl:-${AZURE_BLOB_SAS_URL:-}}"
     export ACTIVE_ENV_FILE="$env_file"
     export ACTIVE_SECRETS_FILE="${resolved_secrets_file}"
 }

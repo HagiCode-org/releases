@@ -18,7 +18,6 @@ PARAM_ALIASES = {
     "dockerplatform": "docker-platform",
     "dryrun": "dry-run",
     "listonly": "list-only",
-    "azureblobsasurl": "azure-blob-sas-url",
     "releasepackageindexurl": "release-package-index-url",
     "releasepackagebaseurl": "release-package-base-url",
     "githubtoken": "github-token",

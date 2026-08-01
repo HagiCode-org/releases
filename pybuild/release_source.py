@@ -66,11 +66,10 @@ def parse_index(raw: str | bytes | dict[str, Any]) -> PackageIndex:
     return PackageIndex(versions=versions)
 
 
-def download_index(index_url: str, azure_blob_sas_url: str = "") -> PackageIndex:
-    url = index_url or azure_blob_sas_url
-    if not url:
-        raise RuntimeError("Release package source is missing. Set RELEASE_PACKAGE_INDEX_URL or AZURE_BLOB_SAS_URL.")
-    with urllib.request.urlopen(url, timeout=60) as response:
+def download_index(index_url: str) -> PackageIndex:
+    if not index_url:
+        raise RuntimeError("Release package source is missing. Set RELEASE_PACKAGE_INDEX_URL.")
+    with urllib.request.urlopen(index_url, timeout=60) as response:
         return parse_index(response.read())
 
 
@@ -105,7 +104,7 @@ def select_package_assets(index: PackageIndex, version: str, platforms: list[str
     return selected
 
 
-def resolve_download_url(asset: PackageAsset, *, base_url: str = "", index_url: str = "", azure_blob_sas_url: str = "") -> str:
+def resolve_download_url(asset: PackageAsset, *, base_url: str = "", index_url: str = "") -> str:
     if asset.url:
         return asset.url
     for source in asset.sources:
@@ -119,11 +118,6 @@ def resolve_download_url(asset: PackageAsset, *, base_url: str = "", index_url: 
         return urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
     if index_url:
         return urllib.parse.urljoin(index_url.rsplit("/", 1)[0] + "/", path.lstrip("/"))
-    if azure_blob_sas_url:
-        parsed = urllib.parse.urlparse(azure_blob_sas_url)
-        base = urllib.parse.urlunparse(parsed._replace(query=""))
-        query = ("?" + parsed.query) if parsed.query else ""
-        return urllib.parse.urljoin(base.rstrip("/") + "/", path.lstrip("/")) + query
     return ""
 
 
@@ -142,15 +136,15 @@ def download_file(url: str, destination: Path, retries: int = 3) -> int:
     raise RuntimeError(f"Failed to download {url}: {last_error}")
 
 
-def download_all_for_version(*, index_url: str, base_url: str, azure_blob_sas_url: str, version: str, output_directory: Path, platforms: list[str] | None = None) -> list[Path]:
-    index = download_index(index_url, azure_blob_sas_url)
+def download_all_for_version(*, index_url: str, base_url: str, version: str, output_directory: Path, platforms: list[str] | None = None) -> list[Path]:
+    index = download_index(index_url)
     selected = select_package_assets(index, version, platforms)
     if not selected:
         raise RuntimeError(f"Version {version} not found in package index or no zip assets matched requested platforms")
     output_directory.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for _, asset in selected:
-        url = resolve_download_url(asset, base_url=base_url, index_url=index_url, azure_blob_sas_url=azure_blob_sas_url)
+        url = resolve_download_url(asset, base_url=base_url, index_url=index_url)
         if not url:
             raise RuntimeError(f"No download URL resolved for {asset.path}")
         destination = output_directory / _asset_name(asset)

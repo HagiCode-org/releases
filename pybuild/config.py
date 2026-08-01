@@ -30,7 +30,6 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "ListOnly": ("LIST_ONLY",),
     "ReleasePackageIndexUrl": ("RELEASE_PACKAGE_INDEX_URL",),
     "ReleasePackageBaseUrl": ("RELEASE_PACKAGE_BASE_URL",),
-    "AzureBlobSasUrl": ("AZURE_BLOB_SAS_URL",),
     "GitHubToken": ("GITHUB_TOKEN",),
     "GitHubRepository": ("GITHUB_REPOSITORY",),
     "AliyunAcrRegistry": ("ALIYUN_ACR_REGISTRY",),
@@ -128,8 +127,7 @@ def effective_release_version(repo_root: Path, explicit: str = "") -> str:
     return "latest"
 
 
-def release_source(repo_root: Path) -> tuple[str, str, str]:
+def release_source(repo_root: Path) -> tuple[str, str]:
     index_url = env_value("ReleasePackageIndexUrl")
     base_url = env_value("ReleasePackageBaseUrl")
-    sas = env_value("AzureBlobSasUrl") or os.environ.get("AZURE_BLOB_SAS_URL", "")
-    return index_url, base_url, sas
+    return index_url, base_url

@@ -40,7 +40,7 @@ def _github_repository(explicit: str = "") -> str:
     return _value(explicit, "GitHubRepository", "GITHUB_REPOSITORY")
 
 
-def _source() -> tuple[str, str, str]:
+def _source() -> tuple[str, str]:
     return release_source(REPO_ROOT)
 
 
@@ -62,25 +62,23 @@ def determine_build_config(c, release_version: str = "") -> None:
 
 
 @task
-def download(c, release_version: str = "", azure_blob_sas_url: str = "", release_package_index_url: str = "", release_package_base_url: str = "", download_platforms: str = "") -> None:
+def download(c, release_version: str = "", release_package_index_url: str = "", release_package_base_url: str = "", download_platforms: str = "") -> None:
     version = _release_version(release_version)
-    index_url, base_url, sas = _source()
+    index_url, base_url = _source()
     index_url = release_package_index_url or index_url
     base_url = release_package_base_url or base_url
-    sas = azure_blob_sas_url or sas
     platforms = [p.strip() for p in download_platforms.split(",") if p.strip()]
-    paths = download_all_for_version(index_url=index_url, base_url=base_url, azure_blob_sas_url=sas, version=version, output_directory=DOWNLOAD_DIR, platforms=platforms)
+    paths = download_all_for_version(index_url=index_url, base_url=base_url, version=version, output_directory=DOWNLOAD_DIR, platforms=platforms)
     print(f"[PYBUILD][download] downloaded {len(paths)} package(s)")
 
 
 @task(name="version-monitor")
-def version_monitor(c, dry_run: str = "", list_only: str = "", release_package_index_url: str = "", release_package_base_url: str = "", azure_blob_sas_url: str = "", github_token: str = "", github_repository: str = "") -> None:
-    index_url, _, sas = _source()
+def version_monitor(c, dry_run: str = "", list_only: str = "", release_package_index_url: str = "", release_package_base_url: str = "", github_token: str = "", github_repository: str = "") -> None:
+    index_url, _ = _source()
     index_url = release_package_index_url or index_url
-    sas = azure_blob_sas_url or sas
     token = _github_token(github_token)
     repository = _github_repository(github_repository)
-    index = download_index(index_url, sas)
+    index = download_index(index_url)
     package_versions = all_versions(index)
     releases = get_releases(token, repository)
     plan = create_plan(package_versions, releases)
@@ -112,9 +110,9 @@ def github_release(c, release_version: str = "", github_token: str = "", github_
     version = _release_version(release_version)
     token = _github_token(github_token)
     repository = _github_repository(github_repository)
-    index_url, base_url, sas = _source()
+    index_url, base_url = _source()
     if not downloaded_zip_files(DOWNLOAD_DIR, version):
-        download_all_for_version(index_url=index_url, base_url=base_url, azure_blob_sas_url=sas, version=version, output_directory=DOWNLOAD_DIR)
+        download_all_for_version(index_url=index_url, base_url=base_url, version=version, output_directory=DOWNLOAD_DIR)
     url = create_or_update_release(token, repository, version, downloaded_zip_files(DOWNLOAD_DIR, version))
     write_github_output("release_url", url)
 
@@ -124,10 +122,10 @@ def _docker_release(registry_kind: str, *, release_version: str = "", docker_pla
     version = _release_version(release_version)
     platform_value = docker_platform or env_value("DockerPlatform") or config.docker.platform
     platforms = resolve_platforms(platform_value)
-    index_url, base_url, sas = _source()
+    index_url, base_url = _source()
     package_platforms = ["linux-x64" if p == "linux/amd64" else "linux-arm64" if p == "linux/arm64" else p for p in platforms]
     if not all(downloaded_zip_files(DOWNLOAD_DIR, version, p) for p in platforms):
-        download_all_for_version(index_url=index_url, base_url=base_url, azure_blob_sas_url=sas, version=version, output_directory=DOWNLOAD_DIR, platforms=package_platforms)
+        download_all_for_version(index_url=index_url, base_url=base_url, version=version, output_directory=DOWNLOAD_DIR, platforms=package_platforms)
     prepare_context(REPO_ROOT, version=version, platforms=platforms, download_dir=DOWNLOAD_DIR, context_dir=DOCKER_CONTEXT_DIR)
     dry = env_bool("DryRun") or str(dry_run).lower() in {"1", "true", "yes", "on"}
     if registry_kind == "aliyun":

@@ -8,7 +8,6 @@ source "${SCRIPT_DIR}/docker-local-common.sh"
 
 ENV_FILE="$DEFAULT_ENV_FILE"
 SECRETS_FILE=""
-SKIP_DOWNLOAD=false
 NO_CACHE=false
 CLI_RELEASE_VERSION=""
 CLI_PLATFORM=""
@@ -35,10 +34,6 @@ while [ $# -gt 0 ]; do
         --image)
             CLI_IMAGE="$2"
             shift 2
-            ;;
-        --skip-download)
-            SKIP_DOWNLOAD=true
-            shift
             ;;
         --no-cache)
             NO_CACHE=true
@@ -73,21 +68,9 @@ ensure_release_version
 ensure_single_platform "$HAGICODE_DOCKER_PLATFORM"
 prepare_local_dirs
 
-download_platform="$(platform_to_download_name "$HAGICODE_DOCKER_PLATFORM")"
 
-if [ "$SKIP_DOWNLOAD" = true ]; then
-    ensure_download_artifacts_present
-elif [ -n "${NUGEX_AzureBlobSasUrl:-}" ]; then
-    log "Downloading ${download_platform} package for ${HAGICODE_RELEASE_VERSION}"
-    "$REPO_ROOT/build.sh" \
-        Download \
-        --ReleaseVersion "$HAGICODE_RELEASE_VERSION" \
-        --AzureBlobSasUrl "$NUGEX_AzureBlobSasUrl" \
-        --DownloadPlatforms "$download_platform"
-else
-    log "AZURE_BLOB_SAS_URL is not set; reusing any matching package already in output/download"
-    ensure_download_artifacts_present
-fi
+log "Reusing any matching package already in output/download"
+ensure_download_artifacts_present
 
 log "Preparing Docker build context"
 "$REPO_ROOT/build.sh" \
