@@ -101,6 +101,12 @@ class PyBuildTests(unittest.TestCase):
         self.assertEqual(_normalize_index_url("https://dl-server.hagicode.com/index.json"), "https://dl-server.hagicode.com/index.json")
 
 
+    def test_release_source_http_request_sets_user_agent(self):
+        from pybuild.release_source import DEFAULT_HTTP_USER_AGENT, _http_request
+
+        req = _http_request("https://dl-server.hagicode.com/index.json")
+        self.assertEqual(req.get_header("User-agent"), DEFAULT_HTTP_USER_AGENT)
+
     def test_github_release_notes_and_docker_dry_run(self):
         import tempfile
         from pybuild.docker_ops import DockerImageInfo, docker_buildx_push

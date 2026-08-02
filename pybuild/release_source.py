@@ -31,6 +31,12 @@ class PackageIndex:
     versions: list[PackageVersion] = field(default_factory=list)
 
 
+DEFAULT_HTTP_USER_AGENT = "Mozilla/5.0 (compatible; HagiCodeReleaseBot/1.0; +https://github.com/HagiCode-org/releases)"
+
+
+def _http_request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(url, headers={"User-Agent": DEFAULT_HTTP_USER_AGENT})
+
 def _first(data: dict[str, Any], *names: str, default: Any = "") -> Any:
     lower = {str(k).lower(): v for k, v in data.items()}
     for name in names:
@@ -81,7 +87,7 @@ def download_index(index_url: str) -> PackageIndex:
         raise RuntimeError("Release package source is missing. Set RELEASE_PACKAGE_INDEX_URL.")
     print(f"[PYBUILD][version-monitor] downloading package index: {resolved_index_url}")
     try:
-        with urllib.request.urlopen(resolved_index_url, timeout=60) as response:
+        with urllib.request.urlopen(_http_request(resolved_index_url), timeout=60) as response:
             print(f"[PYBUILD][version-monitor] package index response: status={getattr(response, 'status', 'unknown')} content-type={response.headers.get('Content-Type', 'unknown')}")
             return parse_index(response.read())
     except urllib.error.HTTPError as exc:
@@ -143,7 +149,7 @@ def download_file(url: str, destination: Path, retries: int = 3) -> int:
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            with urllib.request.urlopen(url, timeout=120) as response, destination.open("wb") as out:
+            with urllib.request.urlopen(_http_request(url), timeout=120) as response, destination.open("wb") as out:
                 shutil.copyfileobj(response, out)
             return destination.stat().st_size
         except Exception as exc:
