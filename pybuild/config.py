@@ -128,6 +128,6 @@ def effective_release_version(repo_root: Path, explicit: str = "") -> str:
 
 
 def release_source(repo_root: Path) -> tuple[str, str]:
-    index_url = env_value("ReleasePackageIndexUrl")
-    base_url = env_value("ReleasePackageBaseUrl")
+    index_url = env_value("ReleasePackageIndexUrl", "https://dl-server.hagicode.com/")
+    base_url = env_value("ReleasePackageBaseUrl", "https://dl-server.hagicode.com/")
     return index_url, base_url

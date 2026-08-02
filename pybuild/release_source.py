@@ -66,11 +66,21 @@ def parse_index(raw: str | bytes | dict[str, Any]) -> PackageIndex:
     return PackageIndex(versions=versions)
 
 
+def _normalize_index_url(index_url: str) -> str:
+    normalized = (index_url or "").strip()
+    if not normalized:
+        return ""
+    if normalized.endswith("/"):
+        return urllib.parse.urljoin(normalized, "index.json")
+    return normalized
+
 def download_index(index_url: str) -> PackageIndex:
-    if not index_url:
+    resolved_index_url = _normalize_index_url(index_url)
+    if not resolved_index_url:
         raise RuntimeError("Release package source is missing. Set RELEASE_PACKAGE_INDEX_URL.")
-    with urllib.request.urlopen(index_url, timeout=60) as response:
+    with urllib.request.urlopen(resolved_index_url, timeout=60) as response:
         return parse_index(response.read())
+
 
 
 def all_versions(index: PackageIndex) -> list[str]:

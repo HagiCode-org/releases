@@ -55,6 +55,21 @@ class PyBuildTests(unittest.TestCase):
                 else:
                     os.environ[name] = value
 
+    def test_release_source_defaults(self):
+        from pybuild.config import release_source
+
+        saved = {name: os.environ.get(name) for name in ("NUGEX_ReleasePackageIndexUrl", "NUGEX_ReleasePackageBaseUrl", "RELEASE_PACKAGE_INDEX_URL", "RELEASE_PACKAGE_BASE_URL")}
+        for name in saved:
+            os.environ.pop(name, None)
+        try:
+            self.assertEqual(release_source(ROOT), ("https://dl-server.hagicode.com/", "https://dl-server.hagicode.com/"))
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
     def test_version_monitor_plan_and_sorting(self):
         from pybuild.versioning import create_plan, sort_descending
 
@@ -78,6 +93,13 @@ class PyBuildTests(unittest.TestCase):
         })
         selected = select_package_assets(index, "1.2.3", ["linux-x64"])
         self.assertEqual([asset.path for _, asset in selected], ["hagicode-1.2.3-linux-x64.zip"])
+
+    def test_release_source_index_url_normalization(self):
+        from pybuild.release_source import _normalize_index_url
+
+        self.assertEqual(_normalize_index_url("https://dl-server.hagicode.com/"), "https://dl-server.hagicode.com/index.json")
+        self.assertEqual(_normalize_index_url("https://dl-server.hagicode.com/index.json"), "https://dl-server.hagicode.com/index.json")
+
 
     def test_github_release_notes_and_docker_dry_run(self):
         import tempfile
