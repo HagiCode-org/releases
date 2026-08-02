@@ -8,9 +8,9 @@ This document describes all environment variables required or used by the HagiCo
 
 | Variable | Description | Required | Example |
 |----------|-------------|-----------|----------|
-| `RELEASE_PACKAGE_INDEX_URL` | Primary published package `index.json` URL for Version Monitor and package downloads | Yes | `https://Dl-server.hagicode.com/index.json` |
+| `RELEASE_PACKAGE_INDEX_URL` | Primary published package source URL for Version Monitor and package downloads. Supports both base URL and explicit `index.json` URL. | Yes | `https://dl-server.hagicode.com/` |
 | `NUGEX_ReleasePackageIndexUrl` | Backward-compatible legacy package index URL override | No | Same as above |
-| `RELEASE_PACKAGE_BASE_URL` | Optional base URL used when index assets contain relative paths such as `{version}/{fileName}` | No | `https://Dl-server.hagicode.com/` |
+| `RELEASE_PACKAGE_BASE_URL` | Optional base URL used when index assets contain relative paths such as `{version}/{fileName}` | No | `https://dl-server.hagicode.com/` |
 | `NUGEX_ReleasePackageBaseUrl` | Backward-compatible legacy package base URL override | No | Same as above |
 
 ### GitHub Integration
@@ -248,7 +248,7 @@ When using GitHub Actions, configure these secrets in your repository settings:
 
 ### Required Secrets
 
-1. `RELEASE_PACKAGE_INDEX_URL` - Primary published package `index.json` URL
+1. `RELEASE_PACKAGE_INDEX_URL` - Primary published package source URL (recommended: `https://dl-server.hagicode.com/`)
 2. `GITHUB_TOKEN` - GitHub PAT with repo and workflow permissions
 
 ### Optional Secrets (Aliyun ACR Push)
@@ -275,13 +275,13 @@ Set environment variables before running PyBuild/Invoke:
 
 ```bash
 # macOS/Linux
-export RELEASE_PACKAGE_INDEX_URL="https://Dl-server.hagicode.com/index.json"
-export RELEASE_PACKAGE_BASE_URL="https://Dl-server.hagicode.com/"
+export RELEASE_PACKAGE_INDEX_URL="https://dl-server.hagicode.com/"
+export RELEASE_PACKAGE_BASE_URL="https://dl-server.hagicode.com/"
 export GITHUB_TOKEN="ghp_xxxxxx"
 
 # Windows PowerShell
-$env:RELEASE_PACKAGE_INDEX_URL="https://Dl-server.hagicode.com/index.json"
-$env:RELEASE_PACKAGE_BASE_URL="https://Dl-server.hagicode.com/"
+$env:RELEASE_PACKAGE_INDEX_URL="https://dl-server.hagicode.com/"
+$env:RELEASE_PACKAGE_BASE_URL="https://dl-server.hagicode.com/"
 $env:GITHUB_TOKEN="ghp_xxxxxx"
 
 # Run build
