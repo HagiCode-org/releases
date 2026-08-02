@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -78,8 +79,14 @@ def download_index(index_url: str) -> PackageIndex:
     resolved_index_url = _normalize_index_url(index_url)
     if not resolved_index_url:
         raise RuntimeError("Release package source is missing. Set RELEASE_PACKAGE_INDEX_URL.")
-    with urllib.request.urlopen(resolved_index_url, timeout=60) as response:
-        return parse_index(response.read())
+    print(f"[PYBUILD][version-monitor] downloading package index: {resolved_index_url}")
+    try:
+        with urllib.request.urlopen(resolved_index_url, timeout=60) as response:
+            print(f"[PYBUILD][version-monitor] package index response: status={getattr(response, 'status', 'unknown')} content-type={response.headers.get('Content-Type', 'unknown')}")
+            return parse_index(response.read())
+    except urllib.error.HTTPError as exc:
+        print(f"[PYBUILD][version-monitor] package index request failed: status={exc.code} reason={exc.reason} url={exc.url}")
+        raise
 
 
 
