@@ -16,6 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = REPO_ROOT / "output"
 DOWNLOAD_DIR = OUTPUT_DIR / "download"
 DOCKER_CONTEXT_DIR = OUTPUT_DIR / "docker-build-context"
+ALIYUN_ACR_PERSONAL_ENABLED = False
+ALIYUN_ACR_DISABLED_MESSAGE = "Aliyun ACR personal edition publishing is disabled and no longer supported."
 
 
 def _value(explicit: str = "", *names: str) -> str:
@@ -99,7 +101,6 @@ def version_monitor(c, dry_run: str = "", list_only: str = "", release_package_i
         print("[PYBUILD][version-monitor] latest package source version is already present on GitHub")
         return
     dispatch(repository, token, "version-monitor-release", {"version": plan.selected_version}, dry_run=dry)
-    dispatch(repository, token, "version-monitor-docker-aliyun", {"version": plan.selected_version}, dry_run=dry)
     dispatch(repository, token, "version-monitor-docker-dockerhub", {"version": plan.selected_version}, dry_run=dry)
     if not dry:
         verify_dispatch_created(repository, token, "github-release-workflow.yml")
@@ -156,6 +157,8 @@ def docker_release(c, release_version: str = "", docker_platform: str = "", dry_
 
 @task(name="push-to-aliyun-acr")
 def push_to_aliyun_acr(c, release_version: str = "", docker_platform: str = "", dry_run: str = "") -> None:
+    if not ALIYUN_ACR_PERSONAL_ENABLED:
+        raise RuntimeError(ALIYUN_ACR_DISABLED_MESSAGE)
     _docker_release("aliyun", release_version=release_version, docker_platform=docker_platform, dry_run=dry_run)
 
 

@@ -32,6 +32,7 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "ReleasePackageBaseUrl": ("RELEASE_PACKAGE_BASE_URL",),
     "GitHubToken": ("GITHUB_TOKEN",),
     "GitHubRepository": ("GITHUB_REPOSITORY",),
+    # Historical aliases retained for the disabled PushToAliyunAcr target.
     "AliyunAcrRegistry": ("ALIYUN_ACR_REGISTRY",),
     "AliyunAcrNamespace": ("ALIYUN_ACR_NAMESPACE",),
     "AliyunAcrUsername": ("ALIYUN_ACR_USERNAME",),

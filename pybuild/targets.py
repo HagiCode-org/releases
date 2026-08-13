@@ -15,6 +15,7 @@ TARGET_ALIASES: dict[str, str] = {
     "github-release": "github-release",
     "dockerrelease": "docker-release",
     "docker-release": "docker-release",
+    # Historical disabled target retained for wrapper compatibility and audit.
     "pushtoaliyunacr": "push-to-aliyun-acr",
     "push-to-aliyun-acr": "push-to-aliyun-acr",
     "pushtodockerhub": "push-to-dockerhub",
