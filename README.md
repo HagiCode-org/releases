@@ -6,7 +6,7 @@ HagiCode Release is the automation hub for turning built artifacts into distribu
 
 ## Product overview
 
-This repository connects version discovery, GitHub Releases, and multi-registry Docker publishing so HagiCode builds can move from generated packages to public delivery.
+This repository connects version discovery, GitHub Releases, and Docker Hub publishing so HagiCode builds can move from generated packages to public delivery.
 
 ## What this repository handles
 
@@ -68,13 +68,14 @@ Automatic publishing now has a single entry point:
 
 - `./build.sh VersionMonitor` still discovers every unpublished Azure version, but it auto-selects only the newest unpublished version for the current run
 - GitHub Release automation starts only from `repository_dispatch` with event type `version-monitor-release`
-- Docker automation starts only from `repository_dispatch` with registry-specific event types (`version-monitor-docker-aliyun`, `version-monitor-docker-dockerhub`)
+- Docker Hub automation starts from `repository_dispatch` with event type `version-monitor-docker-dockerhub`; version monitoring no longer emits the historical `version-monitor-docker-aliyun` event
 - Older unpublished versions are reported as deferred backlog for later scheduled runs or manual handling
 
 Manual reruns stay available, but they are explicit:
 
 - `github-release-workflow.yml` requires `workflow_dispatch.version`
-- Each `docker-build-*.yml` workflow requires `workflow_dispatch.version` and keeps optional `platform` / `dry_run`
+- `docker-build-dockerhub.yml` requires `workflow_dispatch.version` and keeps optional `platform` / `dry_run`
+- `docker-build-aliyun-acr.yml` is retained only for history and audit; every invocation stops at its first step because Aliyun ACR personal edition publishing is disabled
 - Creating or reusing a Git tag no longer auto-starts GitHub Release or Docker workflows
 
 ## Container CLI contract
@@ -130,4 +131,4 @@ If `SSH_PRIVATE_KEY_PATH` is set but the file is missing, unreadable, or not a r
 
 ## Ecosystem role
 
-HagiCode Release takes outputs produced by repositories such as `repos/hagicode-core` and `repos/hagicode-desktop`, then publishes them to GitHub Releases, Aliyun ACR, DockerHub, and related delivery channels.
+HagiCode Release takes outputs produced by repositories such as `repos/hagicode-core` and `repos/hagicode-desktop`, then publishes them to GitHub Releases, Docker Hub, and related active delivery channels. The historical Aliyun ACR personal edition configuration and target aliases remain for auditability but are disabled.

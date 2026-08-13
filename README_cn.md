@@ -6,7 +6,7 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 ## 产品概览
 
-本仓库把版本发现、GitHub Release 与多 Registry Docker 发布串成一条链路，让 HagiCode 的构建结果可以从生成包走向公开交付。
+本仓库把版本发现、GitHub Release 与 Docker Hub 发布串成一条链路，让 HagiCode 的构建结果可以从生成包走向公开交付。
 
 ## 本仓库负责什么
 
@@ -107,4 +107,4 @@ volumes:
 
 ## 在生态中的角色
 
-HagiCode Release 接收 `repos/hagicode-core`、`repos/hagicode-desktop` 等仓库生成的构建产物，并把它们发布到 GitHub Releases、阿里云 ACR、DockerHub 等交付渠道。
+HagiCode Release 接收 `repos/hagicode-core`、`repos/hagicode-desktop` 等仓库生成的构建产物，并把它们发布到 GitHub Releases、Docker Hub 等当前交付渠道。阿里云 ACR 个人版的历史配置、工作流和目标别名仅为审计保留，已禁用且不会自动触发或执行发布。

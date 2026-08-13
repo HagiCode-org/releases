@@ -22,21 +22,14 @@ This document describes all environment variables required or used by the HagiCo
 | `GITHUB_REPOSITORY` | GitHub repository in format `owner/repo` | Yes (CI) | `newbe36524/hagicode` |
 | `NUGEX_GitHubRepository` | Backward-compatible way to pass GitHub repo | No | Same as above |
 
+### Disabled historical Aliyun ACR compatibility
 
-| Variable | Description | Required | Example |
-|----------|-------------|-----------|----------|
-
-### Aliyun ACR (Aliyun Container Registry)
-
-| Variable | Description | Required | Example |
-|----------|-------------|-----------|----------|
-| `ALIYUN_ACR_USERNAME` | Aliyun ACR username for authentication | No (optional push) | `your-username` |
-| `NUGEX_AliyunAcrUsername` | Alternative way to pass Aliyun ACR username (PyBuild/Invoke prefix) | No | Same as above |
-| `ALIYUN_ACR_PASSWORD` | Aliyun ACR password or access token | No (optional push) | `your-password` |
-| `NUGEX_AliyunAcrPassword` | Alternative way to pass Aliyun ACR password (PyBuild/Invoke prefix) | No | Same as above |
-| `ALIYUN_ACR_REGISTRY` | Aliyun ACR registry endpoint | No (optional push) | `registry.cn-hangzhou.aliyuncs.com` |
-| `NUGEX_AliyunAcrRegistry` | Alternative way to pass Aliyun ACR registry (PyBuild/Invoke prefix) | No | Same as above |
-| `ALIYUN_ACR_NAMESPACE` | Aliyun ACR namespace for image path | No | `hagicode` |
+Aliyun ACR personal edition publishing is disabled. Do not configure ACR
+credentials for current releases. The `ALIYUN_ACR_*` and
+`NUGEX_AliyunAcr*` aliases remain recognized only as historical compatibility
+content for the retained, disabled `PushToAliyunAcr` implementation. Version
+monitoring does not dispatch it, its workflow exits before reading credentials,
+and Docker Hub publishing neither requires nor reads these values.
 
 ### DockerHub
 
@@ -74,8 +67,7 @@ This document describes all environment variables required or used by the HagiCo
 When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to `true`:
 
 - Uses `docker buildx` for direct multi-architecture builds and pushes
-- Enables parallel push to multiple registries (Aliyun ACR, DockerHub)
-- Provides failure isolation - one registry failure doesn't affect others
+- Publishes only through the active Docker Hub registry route
 - Falls back to single architecture (amd64) if registry doesn't support multi-arch
 
 ### Release Management
@@ -250,13 +242,6 @@ When using GitHub Actions, configure these secrets in your repository settings:
 
 1. `RELEASE_PACKAGE_INDEX_URL` - Primary published package source URL (recommended: `https://dl-server.hagicode.com/`)
 2. `GITHUB_TOKEN` - GitHub PAT with repo and workflow permissions
-
-### Optional Secrets (Aliyun ACR Push)
-
-1. `ALIYUN_ACR_USERNAME` - Aliyun ACR username
-2. `ALIYUN_ACR_PASSWORD` - Aliyun ACR password
-3. `ALIYUN_ACR_REGISTRY` - Aliyun ACR registry endpoint (default: `registry.cn-hangzhou.aliyuncs.com`)
-4. `ALIYUN_ACR_NAMESPACE` - Aliyun ACR namespace (default: `hagicode`)
 
 ### Optional Secrets (DockerHub Push)
 

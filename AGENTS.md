@@ -251,7 +251,7 @@ Legacy wrapper target names map to Invoke tasks:
 | `VersionMonitor` | `version-monitor` | Read package source versions, compare GitHub Releases, dispatch release workflows |
 | `GitHubRelease` | `github-release` | Download packages when needed and create/update GitHub Release assets |
 | `DockerRelease` | `docker-release` | Build/push DockerHub image path by default |
-| `PushToAliyunAcr` | `push-to-aliyun-acr` | Build/push Aliyun ACR image |
+| `PushToAliyunAcr` | `push-to-aliyun-acr` | Historical disabled alias; exits before Aliyun ACR publishing |
 | `PushToDockerHub` | `push-to-dockerhub` | Build/push DockerHub image |
 | `Download` | `download` | Download zip packages from package source |
 | `DockerPrepareLocalContext` | `docker-prepare-local-context` | Prepare `output/docker-build-context` for local Docker Compose builds |
@@ -260,9 +260,11 @@ Legacy wrapper target names map to Invoke tasks:
 
 ### Parameters and Environment
 
-Prefer canonical environment names such as `RELEASE_VERSION`, `DOCKER_PLATFORM`, `RELEASE_PACKAGE_INDEX_URL`, `RELEASE_PACKAGE_BASE_URL`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `ALIYUN_ACR_*`, and `DOCKERHUB_*`.
+Prefer canonical environment names such as `RELEASE_VERSION`, `DOCKER_PLATFORM`, `RELEASE_PACKAGE_INDEX_URL`, `RELEASE_PACKAGE_BASE_URL`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `DOCKERHUB_*`.
 
 Backward-compatible `NUGEX_*` aliases remain accepted for existing workflows and scripts. CLI parameters also accept legacy PascalCase forms, for example `--ReleaseVersion` and `--DockerPlatform`.
+
+The historical `ALIYUN_ACR_*` and `NUGEX_AliyunAcr*` aliases remain in PyBuild for auditability, but Aliyun ACR personal edition publishing is disabled. Active Docker Hub execution does not require or read them.
 
 ### Local Docker Workflow
 
