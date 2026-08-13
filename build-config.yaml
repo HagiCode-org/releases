@@ -21,6 +21,8 @@ docker:
   independent_build: false
 
 aliyun_acr:
+  # Historical disabled compatibility configuration. Active release routes,
+  # including Docker Hub, do not read these values.
   # Aliyun Container Registry endpoint (e.g., registry.cn-hangzhou.aliyuncs.com)
   registry: "registry.cn-hangzhou.aliyuncs.com"
 

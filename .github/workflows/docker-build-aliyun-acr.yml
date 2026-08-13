@@ -1,8 +1,7 @@
 name: Docker Build and Push to Aliyun ACR
 
-# This workflow builds and pushes Docker images to Aliyun Container Registry only.
-# It is triggered automatically by version-monitor dispatches or manually with an
-# explicit version.
+# Historical workflow retained for auditability. Aliyun ACR personal edition
+# publishing is disabled, and the first step prevents all setup and publishing.
 
 on:
   workflow_dispatch:
@@ -38,6 +37,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Aliyun ACR publishing is disabled
+        run: |
+          echo "Aliyun ACR personal edition publishing is disabled and no longer supported."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 

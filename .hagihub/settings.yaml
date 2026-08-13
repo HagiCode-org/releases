@@ -1,8 +1,8 @@
 action_recommendations:
   - id: docker-build-aliyun-acr
-    watch: true
-    include: true
-    reason: "publish container image to Aliyun ACR"
+    watch: false
+    include: false
+    reason: "disabled: Aliyun ACR personal edition is no longer supported"
   - id: docker-build-dockerhub
     watch: true
     include: true
