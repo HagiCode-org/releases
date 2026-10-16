@@ -80,7 +80,7 @@ Manual reruns stay available, but they are explicit:
 
 ## Container CLI contract
 
-The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 22 is installed through an image-managed NVM layout under `/usr/local/nvm`, while npm-installed CLIs remain installed under `/home/hagicode/.npm-global`.
+The unified runtime image now builds from a clean `debian:bookworm-slim` base instead of inheriting the official `node` image user model. Node.js 24 is installed through an image-managed NVM layout under `/usr/local/nvm`, while npm-installed CLIs remain installed under `/home/hagicode/.npm-global`.
 During image build, the Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`; after the image switches to `hagicode`, `npm config set prefix '/home/hagicode/.npm-global'` restores the runtime/global-install contract for npm-delivered CLIs.
 The image then installs pinned `@hagicode/hagiscript` first and runs `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` for the rest of the baked dependency baseline. The release-owned manifest selects the optional built-in agent CLIs `claude-code`, `fission-openspec`, `opencode`, and `codex`, while `skills` stays in the retained bundled tool baseline.
 The managed HagiScript runtime is on `PATH`, so synced commands are available without runtime reinstall work in the entrypoint.

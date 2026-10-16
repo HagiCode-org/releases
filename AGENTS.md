@@ -140,7 +140,7 @@ The Docker base image pre-installs the retained workflow + runtime baseline:
 
 Container foundation notes:
 - Base stages start from `debian:bookworm-slim`, not the official `node` image variants.
-- Node.js 22 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
+- Node.js 24 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
 - The Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user.
 - The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline: `claude`, `openspec`, `skills`, `opencode`, and `codex`.
 - `/home/hagicode/.npm-global` remains the HagiScript bootstrap prefix, `/home/hagicode/.hagiscript/node-runtime/bin` exposes the synced toolchain, and `hagicode` is the only supported non-root runtime user.

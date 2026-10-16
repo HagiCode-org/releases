@@ -56,7 +56,7 @@ cp .env.secrets.local.example .env.secrets.local
 
 ## 容器运行时契约
 
-统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 22 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而通过 npm 交付的内置 CLI 仍安装在 `/home/hagicode/.npm-global`。
+统一运行时镜像现在从纯净的 `debian:bookworm-slim` 基础镜像构建，不再继承官方 `node` 镜像的默认用户模型。Node.js 24 通过镜像自管的 NVM 布局安装到 `/usr/local/nvm`，而通过 npm 交付的内置 CLI 仍安装在 `/home/hagicode/.npm-global`。
 镜像构建时，Node 引导层会先清理 `NPM_CONFIG_PREFIX` 再执行 `nvm install`；切换到 `hagicode` 用户后，再通过 `npm config set prefix '/home/hagicode/.npm-global'` 恢复 npm CLI 的运行时和全局安装约定。
 随后镜像会先安装固定版本的 `@hagicode/hagiscript`，再运行 `hagiscript npm-sync --managed-runtime /home/hagicode/.hagiscript/node-runtime --manifest /app/bootstrap/hagiscript-sync-manifest.json` 同步其余内置依赖基线。发布仓库内的 manifest 选择 `claude-code`、`fission-openspec`、`opencode` 与 `codex` 这些 optional built-in agent CLI，而 `skills` 则保留在内置工具基线中。
 HagiScript 托管运行时已经加入 `PATH`，因此同步后的命令不需要入口脚本在启动时重新安装。

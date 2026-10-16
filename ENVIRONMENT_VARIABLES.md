@@ -95,7 +95,7 @@ When `NUGEX_DockerIndependentBuild` or `NUGEX_EnableIndependentBuild` is set to 
 These variables are used inside Docker containers to configure AI agents:
 
 - Clean runtime base: `debian:bookworm-slim`
-- Shared Node.js toolchain: Node 22 via NVM under `/usr/local/nvm`
+- Shared Node.js toolchain: Node 24 via NVM under `/usr/local/nvm`
 - Build-time Node bootstrap clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user
 - Pinned `@hagicode/hagiscript` is installed first, then `hagiscript npm-sync` consumes `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the rest of the catalog-backed baked baseline
 - HagiScript's managed runtime lives at `/home/hagicode/.hagiscript/node-runtime` and is included on the default system PATH alongside `/home/hagicode/.npm-global/bin`
