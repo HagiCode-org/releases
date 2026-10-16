@@ -21,7 +21,7 @@ FROM debian:bookworm-slim AS base
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Metadata labels
-LABEL description="HagiCode Base - Debian Bookworm slim, Node.js 22 via NVM, .NET 10 runtime with CLI tools"
+LABEL description="HagiCode Base - Debian Bookworm slim, Node.js 24 via NVM, .NET 10 runtime with CLI tools"
 LABEL maintainer="HagiCode Contributors"
 LABEL purpose="Base stage for unified multi-stage build"
 
@@ -51,7 +51,7 @@ RUN wget -qO- https://dot.net/v1/dotnet-install.sh | bash /dev/stdin \
 ENV DOTNET_ROOT=/usr/share/dotnet \
     NVM_DIR=/usr/local/nvm \
     NVM_SYMLINK_CURRENT=true \
-    NODE_VERSION=22 \
+    NODE_VERSION=24 \
     HOME=/home/hagicode \
     NPM_CONFIG_PREFIX=/home/hagicode/.npm-global \
     HAGISCRIPT_NPM_SYNC_MANIFEST=/app/bootstrap/hagiscript-sync-manifest.json \
@@ -59,7 +59,7 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     PINNED_HAGISCRIPT_VERSION=0.3.4
 ENV PATH="/home/hagicode/.npm-global/bin:/home/hagicode/.hagiscript/node-runtime/bin:/usr/local/nvm/current/bin:${DOTNET_ROOT}:${PATH}"
 
-# Install Node.js 22 through a shared, image-managed NVM layout and expose it on PATH
+# Install Node.js 24 through a shared, image-managed NVM layout and expose it on PATH
 # Clear the npm prefix only for the bootstrap layer so nvm install can run cleanly.
 RUN mkdir -p "$NVM_DIR" && \
     export PROFILE=/dev/null && \
