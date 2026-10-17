@@ -1,5 +1,8 @@
 # HagiCode Release
 
+[![last commit](https://img.shields.io/github/last-commit/HagiCode-org/releases)](https://github.com/HagiCode-org/releases/commits/main)
+[![website](https://img.shields.io/website?url=https%3A%2F%2Fhagicode.com&label=website)](https://hagicode.com)
+
 [English](./README.md)
 
 HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发布记录的自动化中枢。

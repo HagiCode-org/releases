@@ -1,5 +1,8 @@
 # HagiCode Release
 
+[![last commit](https://img.shields.io/github/last-commit/HagiCode-org/releases)](https://github.com/HagiCode-org/releases/commits/main)
+[![website](https://img.shields.io/website?url=https%3A%2F%2Fhagicode.com&label=website)](https://hagicode.com)
+
 [简体中文](./README_cn.md)
 
 HagiCode Release is the automation hub for turning built artifacts into distributable releases, container images, and publish records.
