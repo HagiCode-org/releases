@@ -11,7 +11,6 @@ The HagiCode release repository manages automated releases of the HagiCode platf
 ### Claude Code CLI
 
 **Purpose**: AI-assisted development and code generation
-**Version**: 2.1.34
 **Installation**: Included in Docker base images via npm
 
 The Claude Code CLI is pre-installed in all Docker base images and provides:
@@ -24,15 +23,11 @@ The Claude Code CLI is pre-installed in all Docker base images and provides:
 ```bash
 # Run Claude Code within a HagiCode container
 claude --help
-
-# Open the HagiCode project in Claude Code
-claude --project /path/to/hagicode-mono
 ```
 
 ### OpenSpec CLI
 
 **Purpose**: Spec-driven development workflow management
-**Version**: >=1.0.0 <2.0.0
 **Installation**: Included in Docker base images via npm
 
 The OpenSpec CLI manages proposals, changes, and specifications:
@@ -145,7 +140,7 @@ Container foundation notes:
 - The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline: `claude`, `openspec`, `skills`, `opencode`, and `codex`.
 - `/home/hagicode/.npm-global` remains the HagiScript bootstrap prefix, `/home/hagicode/.hagiscript/node-runtime/bin` exposes the synced toolchain, and `hagicode` is the only supported non-root runtime user.
 
-Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through the HagiCode UI when needed, and `uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
+`uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
 - **Base Images**:
   - `hagicode/hagicode:base` - AMD64 base image
   - `hagicode/hagicode:base-arm64` - ARM64 base image
@@ -155,6 +150,8 @@ Provider CLIs such as Copilot, CodeBuddy, and Qoder are installed later through 
 ### AI Agent Configuration
 
 The Docker entrypoint script (`docker-entrypoint.sh`) automatically configures AI agents based on environment variables:
+
+In the entrypoint itself only Claude config, SSH bootstrap, Qoder token detection and the HagiScript toolchain check are implemented; the Codex, Copilot and CodeBuddy variables below are passed through to the container runtime. Full variable reference: `ENVIRONMENT_VARIABLES.md`.
 
 #### Claude Code Configuration
 
@@ -189,10 +186,7 @@ Copilot variables are isolated and do not override Codex/OpenAI variables. They 
 
 - `QODER_PERSONAL_ACCESS_TOKEN`: Non-interactive qoder authentication token passed through to container runtime
 
-Runtime notes:
-- `qodercli` now follows the UI-managed install path instead of the baked image baseline.
-- Container guidance assumes ACP bootstrap via `qodercli --acp` after the UI installs the CLI.
-- Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value.
+Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value. Install path and ACP bootstrap are covered under UI-managed Provider CLIs above.
 
 #### Host Configuration
 
@@ -241,6 +235,9 @@ python -m invoke -c tasks version-monitor
 - `pybuild/docker_ops.py` - Docker context generation, login, and buildx push helpers
 - `build-config.yaml` - default Docker and registry build settings
 - `tasks.py` - root Invoke shim exposing `pybuild.tasks.ns`
+- `docker_deployment/` - `Dockerfile.template` (pinned HagiScript bootstrap version in its header), `docker-entrypoint.sh`, and `hagiscript-sync-manifest.json` (agent CLI IDs synced at image build)
+- `.github/workflows/` - `version-monitor.yml`, `github-release-workflow.yml`, `docker-build-dockerhub.yml`, and the disabled `docker-build-aliyun-acr.yml`; all set up Python 3.12 (`pyproject.toml` allows 3.11 to 3.13, pinned `invoke` and `PyYAML` in `requirements.lock.txt`)
+- `tests/test_pybuild.py` - PyBuild unit tests
 
 ### Supported Targets
 
