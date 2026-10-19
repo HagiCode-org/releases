@@ -8,80 +8,14 @@ The HagiCode release repository manages automated releases of the HagiCode platf
 
 ## Supported AI Agents
 
-### Claude Code CLI
+### Baked CLIs
 
-**Purpose**: AI-assisted development and code generation
-**Installation**: Included in Docker base images via npm
+All are installed into the unified image at build time through `hagiscript npm-sync` (see Docker Integration), not through separate base images.
 
-The Claude Code CLI is pre-installed in all Docker base images and provides:
-- AI-powered code generation and refactoring
-- Interactive development assistance
-- File and project context understanding
-- Multi-agent collaboration support
-
-**Usage**:
-```bash
-# Run Claude Code within a HagiCode container
-claude --help
-```
-
-### OpenSpec CLI
-
-**Purpose**: Spec-driven development workflow management
-**Installation**: Included in Docker base images via npm
-
-The OpenSpec CLI manages proposals, changes, and specifications:
-- Create and manage OpenSpec proposals
-- Track implementation progress through task lists
-- Generate specs from templates
-- Integrate with AI assistants for spec creation
-
-**Usage**:
-```bash
-# List available OpenSpec commands
-openspec --help
-
-# Check OpenSpec version
-openspec --version
-
-# View OpenSpec status
-openspec status
-```
-
-### Skills CLI
-
-**Version**: Pinned through `skills`
-
-The Skills CLI is pre-installed in unified release images as the retained bundled skill-management tool. It is not part of the primary provider-facing agent CLI baseline.
-
-**Usage**:
-```bash
-# Check Skills CLI version
-skills --version
-
-# View Skills CLI help
-skills --help
-```
-
-### Codex CLI
-
-**Purpose**: AI coding task execution and automation
-**Version**: Latest major stream via `@openai/codex`
-**Installation**: Included in Docker base images via npm
-
-The Codex CLI is pre-installed in unified release images and provides:
-- AI coding workflow execution
-- Command-driven coding automation
-- Endpoint and key override via container runtime environment variables
-
-**Usage**:
-```bash
-# Check Codex CLI version
-codex --version
-
-# View Codex CLI help
-codex --help
-```
+- **Claude Code CLI** (`claude`): AI-assisted development; configured by the entrypoint (see below).
+- **OpenSpec CLI** (`openspec`): spec-driven workflow tooling (proposals, changes, task lists); retained as workflow tooling, not a provider-facing agent CLI.
+- **Skills CLI** (`skills`): version pinned through `skills`; retained as the bundled skill-management tool, not part of the primary provider-facing agent CLI baseline.
+- **Codex CLI** (`codex`): AI coding task execution; latest major stream via `@openai/codex`; endpoint and key can be overridden through container runtime environment variables.
 
 ### Primary Agent CLI Baseline
 
@@ -103,7 +37,6 @@ The unified release image no longer pre-installs provider CLIs that HagiCode can
 **Installation**: Installed through the HagiCode UI when needed
 
 Runtime notes:
-- Copilot is no longer part of the image-native CLI baseline.
 - `COPILOT_BASE_URL` and `COPILOT_API_KEY` still configure runtime connectivity after the UI installs the CLI.
 
 #### CodeBuddy CLI
@@ -112,7 +45,6 @@ Runtime notes:
 **Installation**: Installed through the HagiCode UI when needed
 
 Runtime notes:
-- CodeBuddy is no longer part of the image-native CLI baseline.
 - `CODEBUDDY_API_KEY` and `CODEBUDDY_INTERNET_ENVIRONMENT` still apply after the UI installs the CLI.
 
 #### Qoder CLI
@@ -121,16 +53,14 @@ Runtime notes:
 **Installation**: Installed through the HagiCode UI when needed
 
 Runtime notes:
-- `qodercli` now follows the UI-managed install path instead of the baked container baseline.
 - `QODER_PERSONAL_ACCESS_TOKEN` remains available for non-interactive container authentication after the UI installs the CLI.
 - Container guidance still assumes ACP bootstrap via `qodercli --acp` once installed.
 
 ## Docker Integration
 
-The Docker base image pre-installs the retained workflow + runtime baseline:
+The unified Docker image pre-installs the retained workflow + runtime baseline:
 
-- Primary agent CLIs: `claude`, `opencode`, `codex`
-- Bundled tools: `openspec` for workflow automation and `skills` for skill management
+- Primary agent CLIs, `openspec` and `skills` as listed under Primary Agent CLI Baseline
 - Runtime SSH client: `openssh-client`
 
 Container foundation notes:
@@ -140,12 +70,8 @@ Container foundation notes:
 - The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline: `claude`, `openspec`, `skills`, `opencode`, and `codex`.
 - `/home/hagicode/.npm-global` remains the HagiScript bootstrap prefix, `/home/hagicode/.hagiscript/node-runtime/bin` exposes the synced toolchain, and `hagicode` is the only supported non-root runtime user.
 
-`uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
-- **Base Images**:
-  - `hagicode/hagicode:base` - AMD64 base image
-  - `hagicode/hagicode:base-arm64` - ARM64 base image
-
-- **Application Images**: Built on top of base images with application code
+- `uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
+- **Images**: `docker_deployment/Dockerfile.template` is a single multi-stage build. The `base` stage (Debian, Node.js 24, .NET 10 runtime, CLI baseline) is internal and is not pushed as an independent image; the `final` stage adds the application packages and is pushed as `hagicode:<version>`.
 
 ### AI Agent Configuration
 
@@ -229,6 +155,9 @@ python -m invoke -c tasks version-monitor
 
 - `pybuild/entry.py` - wrapper compatibility parser for legacy targets and `--target` forms
 - `pybuild/tasks.py` - Invoke task collection for release targets
+- `pybuild/targets.py` - legacy target name to Invoke task alias map (add new targets here and in `tasks.py`)
+- `pybuild/config.py` - build configuration resolution (`build-config.yaml`, canonical and legacy environment names)
+- `pybuild/runtime.py` - subprocess and command-execution helpers
 - `pybuild/release_source.py` - release package `index.json` parsing and zip download helpers
 - `pybuild/versioning.py` - semantic version sorting and version-monitor planning
 - `pybuild/github_ops.py` - GitHub Release and repository dispatch helpers
@@ -270,6 +199,8 @@ The local scripts under `scripts/` continue to call the root wrapper:
 1. `scripts/docker-local-build.sh` reuses matching packages already present in `output/download`; it does not download on its own.
 2. It then calls `DockerPrepareLocalContext`.
 3. It builds `output/docker-build-context` with `docker buildx build --load` for local Compose use.
+
+Run the built image with `docker-compose.local.yml` through `scripts/docker-local-up.sh`, then `docker-local-test.sh` (readiness and CLI baseline smoke test), `docker-local-logs.sh` and `docker-local-down.sh`. Copy `.env.local.example` to `.env.local` and `.env.secrets.local.example` to `.env.secrets.local` (both untracked; keep plaintext credentials only in the secrets file).
 
 Keep generated packages under `output/download` and generated Docker context under `output/docker-build-context`.
 
