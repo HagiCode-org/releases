@@ -25,8 +25,6 @@ The unified release image keeps only the primary agent CLI baseline baked into t
 - `opencode`
 - `codex`
 
-`openspec` is still retained in the image as workflow tooling, and `skills` is retained as bundled skill-management tooling. They are documented separately from the primary provider-facing agent CLI baseline.
-
 ### UI-managed Provider CLIs
 
 The unified release image no longer pre-installs provider CLIs that HagiCode can provision through the hero/system UI. Those providers now follow the product-managed install flow instead of the baked container baseline.
@@ -70,7 +68,6 @@ Container foundation notes:
 - The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline: `claude`, `openspec`, `skills`, `opencode`, and `codex`.
 - `/home/hagicode/.npm-global` remains the HagiScript bootstrap prefix, `/home/hagicode/.hagiscript/node-runtime/bin` exposes the synced toolchain, and `hagicode` is the only supported non-root runtime user.
 
-- `uipro` no longer ships because the bundled `skills` command replaces its previous runtime role.
 - **Images**: `docker_deployment/Dockerfile.template` is a single multi-stage build. The `base` stage (Debian, Node.js 24, .NET 10 runtime, CLI baseline) is internal and is not pushed as an independent image; the `final` stage adds the application packages and is pushed as `hagicode:<version>`.
 
 ### AI Agent Configuration
