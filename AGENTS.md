@@ -34,8 +34,7 @@ The unified release image no longer pre-installs provider CLIs that HagiCode can
 **Purpose**: GitHub Copilot coding agent workflow in terminal
 **Installation**: Installed through the HagiCode UI when needed
 
-Runtime notes:
-- `COPILOT_BASE_URL` and `COPILOT_API_KEY` still configure runtime connectivity after the UI installs the CLI.
+Runtime variables: see Copilot Global Settings Configuration below.
 
 #### CodeBuddy CLI
 
@@ -51,7 +50,7 @@ Runtime notes:
 **Installation**: Installed through the HagiCode UI when needed
 
 Runtime notes:
-- `QODER_PERSONAL_ACCESS_TOKEN` remains available for non-interactive container authentication after the UI installs the CLI.
+- `QODER_PERSONAL_ACCESS_TOKEN` (see Qoder Runtime Configuration below) remains available for non-interactive container authentication after the UI installs the CLI.
 - Container guidance still assumes ACP bootstrap via `qodercli --acp` once installed.
 
 ## Docker Integration
