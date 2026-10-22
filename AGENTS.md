@@ -64,7 +64,7 @@ Container foundation notes:
 - Base stages start from `debian:bookworm-slim`, not the official `node` image variants.
 - Node.js 24 is installed through a shared NVM layout rooted at `/usr/local/nvm`.
 - The Node bootstrap layer clears `NPM_CONFIG_PREFIX` before `nvm install`, then reapplies `/home/hagicode/.npm-global` later for the `hagicode` user.
-- The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline: `claude`, `openspec`, `skills`, `opencode`, and `codex`.
+- The image installs pinned `@hagicode/hagiscript` first, then uses `hagiscript npm-sync` with `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked baseline listed above.
 - `/home/hagicode/.npm-global` remains the HagiScript bootstrap prefix, `/home/hagicode/.hagiscript/node-runtime/bin` exposes the synced toolchain, and `hagicode` is the only supported non-root runtime user.
 
 - **Images**: `docker_deployment/Dockerfile.template` is a single multi-stage build. The `base` stage (Debian, Node.js 24, .NET 10 runtime, CLI baseline) is internal and is not pushed as an independent image; the `final` stage adds the application packages and is pushed as `hagicode:<version>`.
@@ -131,7 +131,7 @@ The Docker entrypoint also supports startup-time SSH bootstrap for mounted secre
 Runtime behavior:
 - The entrypoint copies the mounted private key into `/home/hagicode/.ssh/imported_key`
 - It writes deterministic SSH config to `/home/hagicode/.ssh/config`, exports `GIT_SSH_COMMAND`, and constrains the runtime to `IdentitiesOnly yes`
-- `.ssh` is permission-hardened (`700` directory, `600` key, `644` known_hosts/config`) and all generated files stay owned by `hagicode`
+- `.ssh` is permission-hardened (`700` directory, `600` key, `644` known_hosts/config) and all generated files stay owned by `hagicode`
 - If an explicitly configured SSH path is missing, unreadable, or not a file, startup fails fast with path-level diagnostics and never prints secret contents
 
 ## Build System Integration
