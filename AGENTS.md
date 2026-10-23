@@ -108,7 +108,7 @@ Copilot variables are isolated and do not override Codex/OpenAI variables. They 
 
 - `QODER_PERSONAL_ACCESS_TOKEN`: Non-interactive qoder authentication token passed through to container runtime
 
-Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value. Install path and ACP bootstrap are covered under UI-managed Provider CLIs above.
+Startup logs never print the raw `QODER_PERSONAL_ACCESS_TOKEN` value.
 
 #### Host Configuration
 
