@@ -13,19 +13,11 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 
 ## 本仓库负责什么
 
-- 监控版本来源并决定何时触发发布流水线
+- 监控版本来源，每次运行只发布最新的未发布版本；更早的未发布版本会作为延后的积压项上报，留待后续运行或人工处理
 - 将应用程序包发布到 GitHub Releases
 - 构建并推送多架构 Docker 镜像
 - 在多条交付通道之间同步发布结果与版本元数据
 - 提供统一容器运行时内置的 CLI 基线
-
-## 主要目录
-
-- `pybuild/` - Python Invoke 发布自动化引擎与兼容入口
-- `.github/workflows/` - 监控与发布相关的 CI/CD 流水线
-- `docker_deployment/` - 容器构建上下文、Dockerfile 与入口脚本
-- `output/` - 本地发布过程生成的产物
-- `ENVIRONMENT_VARIABLES.md` - 运行时与发布配置说明
 
 ## 常用发布命令
 
@@ -35,7 +27,7 @@ HagiCode Release 是把构建产物转换为可分发版本、容器镜像和发
 ./build.sh DockerRelease --ReleaseVersion "1.2.3" --DockerPlatform "all"
 ```
 
-准备真实发布时，请结合 `ENVIRONMENT_VARIABLES.md` 配置对应的凭据与 Registry 参数。根 wrapper 会运行 `python -m pybuild.entry`；也可以直接使用 `python -m invoke -c tasks <task>`。
+准备真实发布时，请结合 [`ENVIRONMENT_VARIABLES.md`](./ENVIRONMENT_VARIABLES.md) 配置对应的凭据与 Registry 参数。根 wrapper 会运行 `python -m pybuild.entry`；也可以直接使用 `python -m invoke -c tasks <task>`。
 
 ## 本地容器构建与测试
 
@@ -110,4 +102,4 @@ volumes:
 
 ## 在生态中的角色
 
-HagiCode Release 接收 `repos/hagicode-core`、`repos/hagicode-desktop` 等仓库生成的构建产物，并把它们发布到 GitHub Releases、Docker Hub 等当前交付渠道。阿里云 ACR 个人版的历史配置、工作流和目标别名仅为审计保留，已禁用且不会自动触发或执行发布。
+HagiCode Release 接收 HagiCode core 与 desktop 等仓库生成的构建产物，并把它们发布到 GitHub Releases、Docker Hub 等当前交付渠道。阿里云 ACR 个人版的历史配置、工作流和目标别名仅为审计保留，已禁用且不会自动触发或执行发布。

@@ -5,18 +5,21 @@ languages:
   - en-US
   - zh-CN
 sourceLanguage: en-US
-style: technical
+style: product
 ---
 
 # README requirements
 
-## Audience and focus
+## Product focus
 
-- Address maintainers of the HagiCode release automation: version discovery, GitHub Releases and container image publishing.
+- Present HagiCode Release as the delivery hub that turns built HagiCode packages into GitHub Releases and multi-architecture container images.
+- Main features: version monitoring that picks the newest unpublished version, GitHub Release publishing, Docker Hub image builds, a unified container runtime image with the HagiScript-synced agent CLI baseline, persistent data and saves volumes, and optional SSH key bootstrap at container start.
+- Address people who deploy HagiCode from the container image and maintainers who run the release commands. Lead with what the product delivers, then how to use it.
 
 ## Required content
 
-- Keep product overview, what this repository handles, main areas, common release commands, local container build and test, desktop artifact verification, trigger boundaries, container CLI contract, runtime startup and persistence, startup SSH bootstrap and ecosystem role.
+- Open with a short product introduction and what the repository delivers.
+- Keep the common release commands, the local container build and test commands, the container runtime contract, the persistence volume layout and the SSH bootstrap options that users act on, as the current README does.
 - Link to `ENVIRONMENT_VARIABLES.md` instead of copying variable lists.
 
 ## README languages
@@ -27,3 +30,5 @@ style: technical
 ## Exclusions
 
 - Exclude registry credentials, values from `.env.local.example` and `.env.secrets.local.example`, SSH keys, tokens, internal hosts, machine-specific paths and private links.
+- Keep repository maintenance instructions out of the README: repository layout, internal architecture, CI workflow wiring, build internals and contribution workflow.
+- Do not list features the repository does not show.

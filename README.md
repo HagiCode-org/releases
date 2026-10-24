@@ -13,19 +13,11 @@ This repository connects version discovery, GitHub Releases, and Docker Hub publ
 
 ## What this repository handles
 
-- Monitor version sources and decide when a release pipeline should run
+- Monitor version sources and release only the newest unpublished version per run; older unpublished versions are reported as deferred backlog for later runs or manual handling
 - Publish application packages to GitHub Releases
 - Build and push multi-architecture Docker images
 - Synchronize publish results and release metadata across delivery channels
 - Ship the streamlined CLI baseline used inside the unified container runtime
-
-## Main areas
-
-- `pybuild/` - Python Invoke release automation engine and compatibility bridge
-- `.github/workflows/` - CI/CD pipelines for monitoring and publishing
-- `docker_deployment/` - container build context, Dockerfiles, and entrypoint scripts
-- `output/` - generated artifacts during local release work
-- `ENVIRONMENT_VARIABLES.md` - runtime and publishing configuration reference
 
 ## Common release commands
 
@@ -35,7 +27,7 @@ This repository connects version discovery, GitHub Releases, and Docker Hub publ
 ./build.sh DockerRelease --ReleaseVersion "1.2.3" --DockerPlatform "all"
 ```
 
-Use repository-specific credentials and registry settings from `ENVIRONMENT_VARIABLES.md` when preparing a real release. The root wrappers run `python -m pybuild.entry`; direct Invoke remains available with `python -m invoke -c tasks <task>`.
+Use repository-specific credentials and registry settings from [`ENVIRONMENT_VARIABLES.md`](./ENVIRONMENT_VARIABLES.md) when preparing a real release. The root wrappers run `python -m pybuild.entry`; direct Invoke remains available with `python -m invoke -c tasks <task>`.
 
 ## Local container build and test
 
@@ -56,30 +48,6 @@ cp .env.secrets.local.example .env.secrets.local
 - Keep plaintext local-only credentials in `.env.secrets.local`; the local scripts load it after `.env.local`, and `build.sh`/`build.ps1` also load it automatically outside GitHub Actions
 - Local image builds still need outbound access to Docker Hub, `dot.net`, GitHub, and npm unless your machine already has equivalent mirrors or caches
 - `scripts/docker-local-test.sh` waits for HTTP readiness and then smoke-tests the HagiScript-synced runtime baseline: `hagiscript`, `claude`, `openspec`, `skills`, `opencode`, and `codex` inside the running container
-
-## Steam Linux desktop artifact verification
-
-When a Linux desktop package bundles the optional portable payload under `resources/extra/portable-fixed/current`, keep the Steam startup contract aligned with the desktop bootstrap fix:
-
-- Steam launch of the packaged artifact must log that Steam Linux compatibility mode was enabled before the first window is created
-- The same packaged artifact launched directly from the CLI must log that compatibility mode was skipped and direct CLI launch keeps the default graphics path
-- If later startup diagnostics are captured, the copied startup-failure log should still begin with the `[StartupCompatibility]` context line so release triage can separate graphics-mode handling from unrelated failures
-
-## Trigger boundaries
-
-Automatic publishing now has a single entry point:
-
-- `./build.sh VersionMonitor` still discovers every unpublished Azure version, but it auto-selects only the newest unpublished version for the current run
-- GitHub Release automation starts only from `repository_dispatch` with event type `version-monitor-release`
-- Docker Hub automation starts from `repository_dispatch` with event type `version-monitor-docker-dockerhub`; version monitoring no longer emits the historical `version-monitor-docker-aliyun` event
-- Older unpublished versions are reported as deferred backlog for later scheduled runs or manual handling
-
-Manual reruns stay available, but they are explicit:
-
-- `github-release-workflow.yml` requires `workflow_dispatch.version`
-- `docker-build-dockerhub.yml` requires `workflow_dispatch.version` and keeps optional `platform` / `dry_run`
-- `docker-build-aliyun-acr.yml` is retained only for history and audit; every invocation stops at its first step because Aliyun ACR personal edition publishing is disabled
-- Creating or reusing a Git tag no longer auto-starts GitHub Release or Docker workflows
 
 ## Container CLI contract
 
@@ -134,4 +102,4 @@ If `SSH_PRIVATE_KEY_PATH` is set but the file is missing, unreadable, or not a r
 
 ## Ecosystem role
 
-HagiCode Release takes outputs produced by repositories such as `repos/hagicode-core` and `repos/hagicode-desktop`, then publishes them to GitHub Releases, Docker Hub, and related active delivery channels. The historical Aliyun ACR personal edition configuration and target aliases remain for auditability but are disabled.
+HagiCode Release takes outputs produced by the HagiCode core and desktop repositories, then publishes them to GitHub Releases, Docker Hub, and related active delivery channels. The historical Aliyun ACR personal edition configuration and target aliases remain for auditability but are disabled.
