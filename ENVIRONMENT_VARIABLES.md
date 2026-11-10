@@ -188,7 +188,7 @@ Copilot variables are isolated and do not override Codex/OpenAI variables.
 The container no longer owns startup-time per-tool reinstall variables for baked CLIs. It installs pinned `@hagicode/hagiscript` during image build, then uses `hagiscript npm-sync` and `/app/bootstrap/hagiscript-sync-manifest.json` to synchronize the retained baked CLI baseline. If a baked CLI version needs to change, update the HagiScript catalog or this release manifest and rebuild the image.
 
 **OpenCode note**:
-- The image ships `opencode` from the pinned `opencode-ai` package baseline.
+- The image ships `opencode` from the pinned `@opencode/cli` (OpenCode 2) package baseline.
 - There is intentionally no `OPENCODE_CLI_VERSION` runtime override variable in this contract.
 - Release-side smoke checks should still verify `opencode --version` so OpenCode remains part of the supported container matrix.
 
