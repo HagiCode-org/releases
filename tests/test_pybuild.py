@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -243,6 +244,59 @@ class PyBuildTests(unittest.TestCase):
         result = subprocess.run([str(ROOT / "build.sh"), "VersionMonitor"], cwd=ROOT, env={**os.environ, "BUILD_ENGINE": "nuke"}, text=True, capture_output=True, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Nuke build engine is no longer supported", result.stderr)
+
+
+class StableReleaseTests(unittest.TestCase):
+    """0.2.0 is stable; any prerelease segment is not; both Docker workflows share one stable check."""
+
+    WORKFLOWS = (
+        ROOT / ".github" / "workflows" / "docker-build-dockerhub.yml",
+        ROOT / ".github" / "workflows" / "docker-build-aliyun-acr.yml",
+    )
+
+    def _determine(self, version: str) -> str:
+        from pybuild import tasks
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            tasks.determine_build_config.body(None, release_version=version)
+        return out.getvalue()
+
+    def test_determine_build_config_marks_0_2_0_stable_and_prereleases_not(self):
+        self.assertIn("Is stable release: True", self._determine("0.2.0"))
+        self.assertIn("Is stable release: False", self._determine("0.2.0-dev.1"))
+        self.assertIn("Is stable release: False", self._determine("0.1.0-beta.107"))
+
+    def test_version_ordering_puts_0_2_0_above_beta_and_its_prereleases(self):
+        from pybuild.versioning import compare, sort_descending
+
+        self.assertGreater(compare("0.2.0", "0.1.0-beta.14"), 0)
+        self.assertGreater(compare("0.2.0", "0.2.0-rc.1"), 0)
+        self.assertEqual(
+            sort_descending(["0.1.0-beta.107", "0.2.0-dev.1", "0.2.0"]),
+            ["0.2.0", "0.2.0-dev.1", "0.1.0-beta.107"],
+        )
+
+    def _stable_check(self, path: Path) -> list[str]:
+        """Return the stripped shell lines from the IS_STABLE initialisation up to its closing fi."""
+        lines = path.read_text(encoding="utf-8").splitlines()
+        start = next(i for i, line in enumerate(lines) if "IS_STABLE=" in line)
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "fi")
+        return [line.strip() for line in lines[start : end + 1]]
+
+    def test_both_docker_workflows_use_the_same_stable_check(self):
+        dockerhub, aliyun = (self._stable_check(path) for path in self.WORKFLOWS)
+
+        self.assertEqual(dockerhub, aliyun)
+        self.assertIn(r"^[0-9]+\.[0-9]+\.[0-9]+$", "\n".join(dockerhub))
+
+    def test_stable_check_is_plain_semver_not_a_word_list(self):
+        for path in self.WORKFLOWS:
+            with self.subTest(workflow=path.name):
+                block = "\n".join(self._stable_check(path))
+                self.assertIn(r"^[0-9]+\.[0-9]+\.[0-9]+$", block)
+                for word in ("rc", "beta", "alpha", "preview", "dev"):
+                    self.assertNotIn(word, block)
 
 
 if __name__ == "__main__":
