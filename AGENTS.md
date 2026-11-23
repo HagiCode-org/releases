@@ -161,7 +161,7 @@ python -m invoke -c tasks version-monitor
 - `build-config.yaml` - default Docker and registry build settings
 - `tasks.py` - root Invoke shim exposing `pybuild.tasks.ns`
 - `docker_deployment/` - `Dockerfile.template` (pinned HagiScript bootstrap version in its header), `docker-entrypoint.sh`, and `hagiscript-sync-manifest.json` (agent CLI IDs synced at image build)
-- `.github/workflows/` - `version-monitor.yml`, `github-release-workflow.yml`, `docker-build-dockerhub.yml`, and the disabled `docker-build-aliyun-acr.yml`; all set up Python 3.12 (`pyproject.toml` allows 3.11 to 3.13, pinned `invoke` and `PyYAML` in `requirements.lock.txt`)
+- `.github/workflows/` - `version-monitor.yml`, `github-release-workflow.yml`, `docker-build-dockerhub.yml`, and the disabled `docker-build-aliyun-acr.yml`; all set up Python 3.12 (`pyproject.toml` allows 3.11 to 3.15, pinned `invoke` and `PyYAML` in `requirements.lock.txt`)
 - `tests/test_pybuild.py` - PyBuild unit tests
 
 ### Supported Targets
